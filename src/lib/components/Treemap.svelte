@@ -297,7 +297,7 @@
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const hit = hitTest(x, y);
-    if (hit) {
+    if (hit && !isSpecialPath(hit.data.path)) {
       selectedPath.set(hit.data.path);
     }
   }

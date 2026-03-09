@@ -4,9 +4,14 @@ import type { FileNode, VolumeInfo } from "../types";
 export const FREESPACE_PATH = "/__freespace__";
 export const UNKNOWN_PATH = "/__unknown__";
 
+/** Synthetic path suffixes used by treemap pruning and tree truncation. */
+export const OTHERS_SUFFIX = "/__others__";
+export const TRUNCATED_SUFFIX = "/__truncated__";
+
 /** Check whether a path belongs to a virtual (special) node. */
 export function isSpecialPath(path: string): boolean {
-  return path === FREESPACE_PATH || path === UNKNOWN_PATH;
+  return path === FREESPACE_PATH || path === UNKNOWN_PATH
+    || path.endsWith(OTHERS_SUFFIX) || path.endsWith(TRUNCATED_SUFFIX);
 }
 
 /**

@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { FileNode, FlatTreeRow } from "../types";
   import { tree, progress, dirSizes } from "../stores/scanStore";
   import { selectedPath } from "../stores/selectionStore";
   import { sortState, type SortState } from "../stores/columnStore";
   import { getParentPath, recordChildVisit, getLastChild } from "../stores/navigationStore";
+  import { isSpecialPath } from "../utils/specialNodes";
   import TreeRow from "./TreeRow.svelte";
   import TreeColumnHeader from "./TreeColumnHeader.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -208,41 +210,61 @@
   }
 
   // Scroll to selected path (auto-expand ancestors if needed)
+  // 핵심: $selectedPath 변경에만 반응. flatRows/expandedPaths는 untrack하여 반응 루프 차단.
   $effect(() => {
-    const sp = $selectedPath;
+    const sp = $selectedPath;  // 이것만 tracked dependency
     if (!sp || !containerEl) return;
-    const t = $tree;
-    if (!t) return;
+    if (isSpecialPath(sp)) return;
 
-    // 선택된 경로가 보이지 않으면 조상을 자동 expand
-    let idx = flatRows.findIndex((r) => r.node.path === sp);
-    if (idx < 0 && sp.startsWith(t.path)) {
-      // 조상 경로들을 expand
+    // untrack: flatRows, expandedPaths, tree 읽기는 dependency로 추적하지 않음
+    untrack(() => {
+      const t = $tree;
+      if (!t) return;
+
+      // 이미 보이는 경로인지 확인
+      const idx = getPathIndex(sp);
+      if (idx >= 0) {
+        // 보이는 경로 → 스크롤만
+        scrollToIdx(idx);
+        return;
+      }
+
+      // 트리에 존재하는 경로인지 확인 후 조상 expand
+      if (!sp.startsWith(t.path)) return;
+
       const next = new Set(expandedPaths);
+      let changed = false;
       const parts = sp.slice(t.path.length).split("/").filter(Boolean);
       let current = t.path;
-      next.add(current);
+      if (!next.has(current)) { next.add(current); changed = true; }
       for (const part of parts) {
         current = current.endsWith("/") ? current + part : current + "/" + part;
-        next.add(current);
+        if (!next.has(current)) { next.add(current); changed = true; }
       }
-      expandedPaths = next;
-    }
 
-    // flatRows가 갱신된 후 스크롤 (tick 후)
-    requestAnimationFrame(() => {
-      if (!containerEl) return;
-      const newIdx = flatRows.findIndex((r) => r.node.path === sp);
-      if (newIdx < 0) return;
-      const top = newIdx * ROW_HEIGHT;
-      const bottom = top + ROW_HEIGHT;
-      if (top < containerEl.scrollTop) {
-        containerEl.scrollTop = top;
-      } else if (bottom > containerEl.scrollTop + containerHeight) {
-        containerEl.scrollTop = bottom - containerHeight;
+      if (changed) {
+        expandedPaths = next;
+        // expand 후 다음 프레임에서 스크롤 (flatRows가 재계산된 후)
+        requestAnimationFrame(() => {
+          if (!containerEl) return;
+          const newIdx = getPathIndex(sp);
+          if (newIdx < 0) return;
+          scrollToIdx(newIdx);
+        });
       }
     });
   });
+
+  function scrollToIdx(idx: number) {
+    if (!containerEl) return;
+    const top = idx * ROW_HEIGHT;
+    const bottom = top + ROW_HEIGHT;
+    if (top < containerEl.scrollTop) {
+      containerEl.scrollTop = top;
+    } else if (bottom > containerEl.scrollTop + containerHeight) {
+      containerEl.scrollTop = bottom - containerHeight;
+    }
+  }
 
   function handleResize() {
     if (containerEl) {
