@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>MacDirStat needs access to scan your Desktop folder for disk usage analysis.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>MacDirStat needs access to scan your Documents folder for disk usage analysis.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>MacDirStat needs access to scan your Downloads folder for disk usage analysis.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>MacDirStat needs access to scan external drives for disk usage analysis.</string>
+</dict>
+</plist>
