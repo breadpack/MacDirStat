@@ -42,6 +42,7 @@
   let optionsPanelOpen = $state(false);
   let cleanupSettingsOpen = $state(false);
   let settingsOpen = $state(false);
+  let cleanupRecommendationsOpen = $state(false);
   let dragOver = $state(false);
 
   let treeViewRef: TreeView | undefined = $state();
@@ -309,6 +310,7 @@
     onReselectChild={() => treeViewRef?.reselectChild()}
     onOpenCleanupSettings={() => cleanupSettingsOpen = true}
     onOpenSettings={() => settingsOpen = true}
+    onOpenCleanupRecommendations={() => cleanupRecommendationsOpen = true}
   />
   <ProgressBar />
   <div class="main-content">

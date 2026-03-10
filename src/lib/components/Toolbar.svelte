@@ -1,11 +1,9 @@
 <script lang="ts">
-  import { stopScan, scanning, tree, currentVolume } from "../stores/scanStore";
-  import { selectedPath, zoomRoot, showFreeSpace, showUnknown } from "../stores/selectionStore";
-  import { showExtensionPanel } from "../stores/extensionStore";
-  import { layoutStore } from "../stores/layoutStore";
+  import { stopScan, scanning, tree } from "../stores/scanStore";
+  import { selectedPath } from "../stores/selectionStore";
   import { getParentPath, getLastChild } from "../stores/navigationStore";
-  import { get } from "svelte/store";
   import { actionOpenFolder, actionRefresh } from "../utils/actions";
+  import MenuDropdown from "./MenuDropdown.svelte";
 
   interface Props {
     optionsPanelOpen: boolean;
@@ -13,15 +11,19 @@
     onReselectChild?: () => void;
     onOpenCleanupSettings?: () => void;
     onOpenSettings?: () => void;
+    onOpenCleanupRecommendations?: () => void;
   }
 
-  let { optionsPanelOpen = $bindable(false), onSelectParent, onReselectChild, onOpenCleanupSettings, onOpenSettings }: Props = $props();
+  let {
+    optionsPanelOpen = $bindable(false),
+    onSelectParent,
+    onReselectChild,
+    onOpenCleanupSettings,
+    onOpenSettings,
+    onOpenCleanupRecommendations,
+  }: Props = $props();
 
   let hasTree = $derived(!!$tree);
-
-  function toggleOptions() {
-    optionsPanelOpen = !optionsPanelOpen;
-  }
 
   let canGoParent = $derived.by(() => {
     const sp = $selectedPath;
@@ -59,49 +61,15 @@
   >Child</button>
   <span class="separator"></span>
   <button
-    class:active={$showFreeSpace}
-    onclick={() => showFreeSpace.update(v => !v)}
-    disabled={!hasTree || !$currentVolume || !!$zoomRoot}
-    title="Show Free Space (F6)"
-  >Free</button>
-  <button
-    class:active={$showUnknown}
-    onclick={() => showUnknown.update(v => !v)}
-    disabled={!hasTree || !$currentVolume || !!$zoomRoot}
-    title="Show Unknown Space (F7)"
-  >Unknown</button>
-  <span class="separator"></span>
-  <button
-    class:active={$layoutStore.showTree}
-    onclick={() => layoutStore.toggleTree()}
-    title="Toggle Tree Panel"
-  >Tree</button>
-  <button
-    class:active={$showExtensionPanel}
-    onclick={() => layoutStore.toggleExtensions()}
-    disabled={!hasTree}
-    title="Extension List (F8)"
-  >Extensions</button>
-  <button
-    class:active={$layoutStore.showTreemap}
-    onclick={() => layoutStore.toggleTreemap()}
-    title="Toggle Treemap (F9)"
-  >Treemap</button>
+    onclick={() => onOpenCleanupRecommendations?.()}
+    title="Cleanup Recommendations"
+  >Cleanup</button>
   <div class="spacer"></div>
-  <button
-    onclick={() => onOpenCleanupSettings?.()}
-    title="Configure Cleanup Actions"
-  >Cleanups</button>
-  <button
-    onclick={() => onOpenSettings?.()}
-    title="Settings (Cmd+,)"
-  >Settings</button>
-  <button
-    class="options-btn"
-    class:active={optionsPanelOpen}
-    onclick={toggleOptions}
-    title="Treemap Options"
-  >Options</button>
+  <MenuDropdown
+    bind:optionsPanelOpen
+    {onOpenCleanupSettings}
+    {onOpenSettings}
+  />
 </div>
 
 <style>
@@ -148,18 +116,6 @@
 
   .spacer {
     flex: 1;
-  }
-
-  button.active {
-    background: #4A90D9;
-    border-color: #4A90D9;
-    color: #fff;
-  }
-
-  .options-btn.active {
-    background: #4A90D9;
-    border-color: #4A90D9;
-    color: #fff;
   }
 
   @keyframes pulse {
