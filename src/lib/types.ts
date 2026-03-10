@@ -11,6 +11,7 @@ export interface FileNode {
   is_symlink: boolean;
   is_hidden: boolean;
   is_readonly: boolean;
+  cleanup_pattern_id: string | null;
 }
 
 export interface ScanProgress {
@@ -51,6 +52,49 @@ export interface CleanupAction {
   confirm: boolean;
   run_in_terminal: boolean;
   refresh_after: boolean;
+}
+
+export type CleanupCategory =
+  | "DevTools" | "PackageManager" | "Container" | "Browser"
+  | "IDE" | "System" | "CloudStorage" | "AppData" | "Media";
+
+export type RiskLevel = "Safe" | "Caution" | "Warning";
+
+export type CleanupMethod =
+  | { type: "Delete"; use_trash: boolean }
+  | { type: "ShellCommand"; command: string; run_in_terminal: boolean; refresh_after: boolean }
+  | { type: "OpenInFinder" };
+
+export interface CleanupRecommendation {
+  pattern_id: string;
+  pattern_name: string;
+  category: CleanupCategory;
+  risk_level: RiskLevel;
+  description: string;
+  paths: string[];
+  total_size: number;
+  cleanup_method: CleanupMethod;
+}
+
+export interface CleanupScanProgress {
+  current_pattern: string;
+  checked: number;
+  total: number;
+}
+
+export interface CleanupResult {
+  success: boolean;
+  freed_bytes: number;
+  message: string;
+}
+
+export interface CleanupPatternInfo {
+  id: string;
+  category: CleanupCategory;
+  name: string;
+  description: string;
+  risk_level: RiskLevel;
+  cleanup_method: CleanupMethod;
 }
 
 export interface FlatTreeRow {

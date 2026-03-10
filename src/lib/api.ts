@@ -1,5 +1,5 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import type { CleanupAction, FileNode, ScanLogEntry, ScanProgress, VolumeInfo } from "./types";
+import type { CleanupAction, CleanupPatternInfo, CleanupRecommendation, CleanupResult, CleanupScanProgress, FileNode, ScanLogEntry, ScanProgress, VolumeInfo } from "./types";
 
 export interface ScanOptions {
   excludePaths?: string[];
@@ -100,4 +100,21 @@ export async function executeCleanup(
   name: string,
 ): Promise<string> {
   return invoke<string>("execute_cleanup", { actionId, path, name });
+}
+
+export async function scanCleanupRecommendations(
+  onProgress: Channel<CleanupScanProgress>,
+): Promise<CleanupRecommendation[]> {
+  return invoke("scan_cleanup_recommendations", { onProgress });
+}
+
+export async function executeCleanupRecommendation(
+  patternId: string,
+  paths: string[],
+): Promise<CleanupResult> {
+  return invoke("execute_cleanup_recommendation", { patternId, paths });
+}
+
+export async function getCleanupPatterns(): Promise<CleanupPatternInfo[]> {
+  return invoke("get_cleanup_patterns");
 }
