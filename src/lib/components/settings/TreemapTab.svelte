@@ -19,6 +19,11 @@
       treemap: { ...s.treemap, showLabels: checked },
     }));
   }
+
+  function handleShowCleanupOverlayChange(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    treemapOptions.update((opts) => ({ ...opts, showCleanupOverlay: checked }));
+  }
 </script>
 
 <div class="tab-content">
@@ -53,6 +58,17 @@
         onchange={handleShowLabelsChange}
       />
       Show file labels in cells
+    </label>
+  </div>
+
+  <div class="setting-group">
+    <label class="checkbox-label">
+      <input
+        type="checkbox"
+        checked={$treemapOptions.showCleanupOverlay}
+        onchange={handleShowCleanupOverlayChange}
+      />
+      Show cleanup overlay (hatching on cleanable items)
     </label>
   </div>
 

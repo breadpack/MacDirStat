@@ -218,6 +218,11 @@
       }
     }
 
+    // Draw cleanup hatching overlay
+    if (opts.showCleanupOverlay) {
+      renderCleanupOverlay(ctx, rects);
+    }
+
     // Draw labels (font set once outside the loop)
     if ($settings.treemap.showLabels) {
       ctx.fillStyle = "rgba(255,255,255,0.8)";
@@ -293,6 +298,38 @@
       }
     }
   });
+
+  function renderCleanupOverlay(ctx: CanvasRenderingContext2D, nodes: TreemapRect[]) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.lineWidth = 1;
+
+    for (const node of nodes) {
+      if (!node.data.cleanup_pattern_id) continue;
+      const x0 = node.x0, y0 = node.y0, x1 = node.x1, y1 = node.y1;
+      const w = x1 - x0, h = y1 - y0;
+      if (w < 4 || h < 4) continue;
+
+      ctx.beginPath();
+      ctx.rect(x0, y0, w, h);
+      ctx.clip();
+
+      const step = 8;
+      const totalDist = w + h;
+      for (let d = step; d < totalDist; d += step) {
+        const startX = x0 + Math.min(d, w);
+        const startY = y0 + Math.max(0, d - w);
+        const endX = x0 + Math.max(0, d - h);
+        const endY = y0 + Math.min(d, h);
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(endX, endY);
+      }
+      ctx.stroke();
+      ctx.restore();
+      ctx.save();
+    }
+    ctx.restore();
+  }
 
   function hitTest(x: number, y: number): TreemapRect | null {
     for (let i = rects.length - 1; i >= 0; i--) {
@@ -424,7 +461,7 @@
       class="tooltip"
       style="left: {tooltipX + 12}px; top: {tooltipY + 12}px"
     >
-      <div class="tooltip-name">{tooltipNode.name}</div>
+      <div class="tooltip-name">{tooltipNode.name}{tooltipNode.cleanup_pattern_id ? ' (cleanable)' : ''}</div>
       <div class="tooltip-size">{formatSize(tooltipNode.size)}</div>
       <div class="tooltip-path">{tooltipNode.path}</div>
     </div>

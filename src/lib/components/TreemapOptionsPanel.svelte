@@ -221,6 +221,18 @@
     </div>
   </div>
 
+  <!-- Cleanup Overlay -->
+  <div class="section">
+    <label class="checkbox-row">
+      <input
+        type="checkbox"
+        bind:checked={opts.showCleanupOverlay}
+        onchange={commitImmediate}
+      />
+      Show cleanup overlay
+    </label>
+  </div>
+
   <!-- Reset -->
   <div class="section">
     <button class="reset-btn" onclick={resetDefaults}>Reset to Defaults</button>

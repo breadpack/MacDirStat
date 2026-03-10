@@ -22,6 +22,9 @@ export interface TreemapOptions {
 
   // Layout
   padding: number;         // 0 ~ 5
+
+  // Cleanup overlay
+  showCleanupOverlay: boolean;
 }
 
 export const DEFAULT_OPTIONS: TreemapOptions = {
@@ -37,6 +40,7 @@ export const DEFAULT_OPTIONS: TreemapOptions = {
   gridWidth: 1,
   style: "sequoiaview",
   padding: 1,
+  showCleanupOverlay: true,
 };
 
 const KDIRSTAT_PRESET: Partial<TreemapOptions> = {
