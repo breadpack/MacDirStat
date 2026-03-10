@@ -12,6 +12,7 @@
   import { injectSpecialNodes, isSpecialPath } from "../utils/specialNodes";
 
   let canvas: HTMLCanvasElement | undefined = $state();
+  let overlayCanvas: HTMLCanvasElement | undefined = $state();
   let containerEl: HTMLDivElement | undefined = $state();
   let width = $state(600);
   let height = $state(400);
@@ -43,10 +44,13 @@
   let tooltipY = $state(0);
   let tooltipNode: FileNode | null = $state(null);
 
-  function findNodeByPath(node: FileNode, path: string): FileNode | null {
-    if (node.path === path) return node;
+  function findNodeByPath(node: FileNode, targetPath: string): FileNode | null {
+    if (node.path === targetPath) return node;
+    if (!node.is_dir) return null;
+    const prefix = node.path.endsWith("/") ? node.path : node.path + "/";
+    if (!targetPath.startsWith(prefix)) return null;
     for (const child of node.children) {
-      const found = findNodeByPath(child, path);
+      const found = findNodeByPath(child, targetPath);
       if (found) return found;
     }
     return null;
@@ -60,39 +64,37 @@
   function applyDirSizes(
     node: FileNode,
     sizes: Map<string, { size: number; file_count: number }>,
-    affectedPrefixes: Set<string>,
+    sortedPaths: string[],
   ): FileNode {
     const info = sizes.get(node.path);
     // 이 노드 하위에 영향받는 경로가 없으면 원본 반환 (클론 없음)
-    if (!info && !hasAffectedDescendant(node.path, affectedPrefixes)) {
+    if (!info && !hasAffectedDescendant(node.path, sortedPaths)) {
       return node;
     }
     if (!node.is_dir) {
       return info ? { ...node, size: info.size } : node;
     }
-    const children = node.children.map((c) => applyDirSizes(c, sizes, affectedPrefixes));
+    const children = node.children.map((c) => applyDirSizes(c, sizes, sortedPaths));
     const childSum = children.reduce((s, c) => s + c.size, 0);
     const ownSize = info ? info.size : 0;
     const totalSize = ownSize + childSum;
     return { ...node, children, size: totalSize > 0 ? totalSize : node.size };
   }
 
-  /** path 하위에 영향받는 경로가 있는지 빠르게 검사 */
-  function hasAffectedDescendant(path: string, prefixes: Set<string>): boolean {
-    const pathWithSlash = path.endsWith("/") ? path : path + "/";
-    for (const p of prefixes) {
-      if (p.startsWith(pathWithSlash) || p === path) return true;
-    }
-    return false;
+  /** Build sorted array of paths for binary search */
+  function buildSortedPaths(sizes: Map<string, { size: number; file_count: number }>): string[] {
+    return [...sizes.keys()].sort();
   }
 
-  /** dirSizes의 경로들에서 영향받는 prefix 세트 구축 */
-  function buildAffectedPrefixes(sizes: Map<string, { size: number; file_count: number }>): Set<string> {
-    const prefixes = new Set<string>();
-    for (const path of sizes.keys()) {
-      prefixes.add(path);
+  /** path 하위에 영향받는 경로가 있는지 binary search로 빠르게 검사 */
+  function hasAffectedDescendant(path: string, sortedPaths: string[]): boolean {
+    const prefix = path.endsWith("/") ? path : path + "/";
+    let lo = 0, hi = sortedPaths.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedPaths[mid] < prefix) lo = mid + 1; else hi = mid;
     }
-    return prefixes;
+    return lo < sortedPaths.length && (sortedPaths[lo].startsWith(prefix) || sortedPaths[lo] === path);
   }
 
   let displayRoot: FileNode | null = $derived.by(() => {
@@ -117,8 +119,8 @@
     const sizes = throttledSizes;
     let root = displayRoot;
     if (sizes.size > 0) {
-      const prefixes = buildAffectedPrefixes(sizes);
-      root = applyDirSizes(displayRoot, sizes, prefixes);
+      const sortedPaths = buildSortedPaths(sizes);
+      root = applyDirSizes(displayRoot, sizes, sortedPaths);
     }
 
     // skeleton 트리(size=0)는 렌더링 스킵
@@ -158,14 +160,18 @@
     };
   }
 
-  // Recompute cushion ImageData when rects, dimensions, or options change
+  // Derived key that only tracks cushion-relevant options
+  let cushionKey = $derived(`${$treemapOptions.cushionEnabled}|${$treemapOptions.brightness}|${$treemapOptions.cushionHeight}|${$treemapOptions.scaleFactor}|${$treemapOptions.ambientLight}|${$treemapOptions.lightX}|${$treemapOptions.lightY}`);
+
+  // Recompute cushion ImageData only when rects, dimensions, or cushion-relevant options change
   $effect(() => {
-    const opts = $treemapOptions;
+    void cushionKey; // track only cushion-relevant options
     if (rects.length === 0 || width <= 0 || height <= 0) {
       cachedImageData = null;
       cachedRectsRef = null;
       return;
     }
+    const opts = $treemapOptions;
     if (opts.cushionEnabled) {
       cachedImageData = renderCushionTreemap(rects, width, height, buildCushionParams());
     } else {
@@ -176,7 +182,7 @@
     cachedHeight = height;
   });
 
-  // Render: put cached ImageData + overlay grid/borders/labels/selection
+  // Static layer: cushion/flat rendering + grid + labels
   $effect(() => {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -184,10 +190,7 @@
 
     ctx.clearRect(0, 0, width, height);
 
-    const sp = $selectedPath;
-    const hp = $hoveredPath;
     const opts = $treemapOptions;
-    const hlExt = $highlightedExtension;
 
     if (cachedImageData && cachedWidth === width && cachedHeight === height) {
       // Draw cushion-shaded treemap
@@ -203,24 +206,6 @@
       }
     }
 
-    // Extension highlight: dim non-matching rects
-    if (hlExt) {
-      for (const rect of rects) {
-        const w = rect.x1 - rect.x0;
-        const h = rect.y1 - rect.y0;
-        if (w < 1 || h < 1) continue;
-        const ext = rect.data.extension?.toLowerCase() ?? "(no ext)";
-        if (ext !== hlExt) {
-          ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-          ctx.fillRect(rect.x0, rect.y0, w, h);
-        } else {
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(rect.x0 + 0.5, rect.y0 + 0.5, w - 1, h - 1);
-        }
-      }
-    }
-
     // Draw grid borders on top
     if (opts.gridEnabled && opts.gridWidth > 0) {
       ctx.strokeStyle = opts.gridColor + "66"; // add alpha
@@ -230,6 +215,64 @@
         const h = rect.y1 - rect.y0;
         if (w < 1 || h < 1) continue;
         ctx.strokeRect(rect.x0 + 0.5, rect.y0 + 0.5, w - 1, h - 1);
+      }
+    }
+
+    // Draw labels (font set once outside the loop)
+    if ($settings.treemap.showLabels) {
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.font = "11px sans-serif";
+      for (const rect of rects) {
+        const w = rect.x1 - rect.x0;
+        const h = rect.y1 - rect.y0;
+        if (w > 40 && h > 14) {
+          const label = rect.data.name;
+          const textWidth = ctx.measureText(label).width;
+          if (textWidth < w - 4) {
+            ctx.fillText(label, rect.x0 + 2, rect.y0 + 12);
+          }
+        }
+      }
+    }
+  });
+
+  // Overlay layer: hover/selection borders + extension highlight
+  $effect(() => {
+    if (!overlayCanvas) return;
+    const ctx = overlayCanvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, width, height);
+
+    const sp = $selectedPath;
+    const hp = $hoveredPath;
+    const hlExt = $highlightedExtension;
+
+    // Extension highlight: dim non-matching rects (batched into single path)
+    if (hlExt) {
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.beginPath();
+      for (const rect of rects) {
+        const w = rect.x1 - rect.x0;
+        const h = rect.y1 - rect.y0;
+        if (w < 1 || h < 1) continue;
+        const ext = rect.data.extension?.toLowerCase() ?? "(no ext)";
+        if (ext !== hlExt) {
+          ctx.rect(rect.x0, rect.y0, w, h);
+        }
+      }
+      ctx.fill();
+      // Draw borders on matching rects
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1.5;
+      for (const rect of rects) {
+        const w = rect.x1 - rect.x0;
+        const h = rect.y1 - rect.y0;
+        if (w < 1 || h < 1) continue;
+        const ext = rect.data.extension?.toLowerCase() ?? "(no ext)";
+        if (ext === hlExt) {
+          ctx.strokeRect(rect.x0 + 0.5, rect.y0 + 0.5, w - 1, h - 1);
+        }
       }
     }
 
@@ -248,17 +291,6 @@
         ctx.lineWidth = 1;
         ctx.strokeRect(rect.x0 + 0.5, rect.y0 + 0.5, w - 1, h - 1);
       }
-
-      // Draw label if rect is large enough and labels are enabled
-      if ($settings.treemap.showLabels && w > 40 && h > 14) {
-        ctx.fillStyle = "rgba(255,255,255,0.8)";
-        ctx.font = "11px sans-serif";
-        const label = rect.data.name;
-        const textWidth = ctx.measureText(label).width;
-        if (textWidth < w - 4) {
-          ctx.fillText(label, rect.x0 + 2, rect.y0 + 12);
-        }
-      }
     }
   });
 
@@ -272,23 +304,48 @@
     return null;
   }
 
+  let rafPending = false;
   function handleMouseMove(e: MouseEvent) {
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const hit = hitTest(x, y);
-    if (hit) {
-      hoveredPath.set(hit.data.path);
-      tooltipVisible = true;
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
-      tooltipNode = hit.data;
-    } else {
-      hoveredPath.set(null);
-      tooltipVisible = false;
-      tooltipNode = null;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const hit = hitTest(x, y);
+      if (hit) {
+        hoveredPath.set(hit.data.path);
+        tooltipVisible = true;
+        tooltipX = e.clientX;
+        tooltipY = e.clientY;
+        tooltipNode = hit.data;
+      } else {
+        hoveredPath.set(null);
+        tooltipVisible = false;
+        tooltipNode = null;
+      }
+    });
+  }
+
+  /** special path(__others__ 등)의 경우 부모 디렉토리 경로를 반환 */
+  function resolveClickPath(hit: TreemapRect): string {
+    if (isSpecialPath(hit.data.path)) {
+      // 부모 디렉토리 경로 = __others__ 등의 앞부분
+      const idx = hit.data.path.lastIndexOf("/");
+      return idx > 0 ? hit.data.path.substring(0, idx) : hit.data.path;
     }
+    return hit.data.path;
+  }
+
+  /** leaf 노드의 부모 디렉토리 경로를 찾아 반환 (zoom용) */
+  function getParentDirPath(hit: TreemapRect): string | null {
+    // leaf의 path에서 마지막 '/'까지가 부모 디렉토리
+    const path = hit.data.path;
+    const idx = path.lastIndexOf("/");
+    if (idx <= 0) return null;
+    return path.substring(0, idx);
   }
 
   function handleClick(e: MouseEvent) {
@@ -297,8 +354,8 @@
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const hit = hitTest(x, y);
-    if (hit && !isSpecialPath(hit.data.path)) {
-      selectedPath.set(hit.data.path);
+    if (hit) {
+      selectedPath.set(resolveClickPath(hit));
     }
   }
 
@@ -308,8 +365,13 @@
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const hit = hitTest(x, y);
-    if (hit && hit.data.is_dir && !isSpecialPath(hit.data.path)) {
-      zoomRoot.set(hit.data.path);
+    if (!hit) return;
+    // 디렉토리 leaf이면 해당 디렉토리로 zoom, 파일이면 부모 디렉토리로 zoom
+    const zoomPath = hit.data.is_dir && !isSpecialPath(hit.data.path)
+      ? hit.data.path
+      : getParentDirPath(hit);
+    if (zoomPath) {
+      zoomRoot.set(zoomPath);
     }
   }
 
@@ -345,6 +407,12 @@
     bind:this={canvas}
     {width}
     {height}
+  ></canvas>
+  <canvas
+    bind:this={overlayCanvas}
+    {width}
+    {height}
+    class="overlay-canvas"
     onmousemove={handleMouseMove}
     onclick={handleClick}
     ondblclick={handleDblClick}
@@ -374,6 +442,12 @@
 
   canvas {
     display: block;
+  }
+
+  .overlay-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
   }
 
   .tooltip {

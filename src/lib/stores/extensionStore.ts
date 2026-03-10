@@ -3,7 +3,7 @@ import { tree } from "./scanStore";
 import { zoomRoot } from "./selectionStore";
 import type { FileNode } from "../types";
 import { computeExtensionStats, type ExtensionStat } from "../utils/extensionStats";
-import { buildColorMap, setActiveColorMap } from "../utils/colorMap";
+import { buildColorMap } from "../utils/colorMap";
 
 /** Whether the extension panel is visible. */
 export const showExtensionPanel = writable<boolean>(false);
@@ -11,21 +11,24 @@ export const showExtensionPanel = writable<boolean>(false);
 /** Currently highlighted extension (clicked in extension list). */
 export const highlightedExtension = writable<string | null>(null);
 
-/** Find a node by path in the tree. */
-function findNodeByPath(node: FileNode, path: string): FileNode | null {
-  if (node.path === path) return node;
+/** Find a node by path in the tree with prefix pruning. */
+function findNodeByPath(node: FileNode, targetPath: string): FileNode | null {
+  if (node.path === targetPath) return node;
+  if (!node.is_dir) return null;
+  const prefix = node.path.endsWith("/") ? node.path : node.path + "/";
+  if (!targetPath.startsWith(prefix)) return null;
   for (const child of node.children) {
-    const found = findNodeByPath(child, path);
+    const found = findNodeByPath(child, targetPath);
     if (found) return found;
   }
   return null;
 }
 
-/** Extension stats derived from current tree/zoomRoot. */
+/** Extension stats derived from current tree/zoomRoot, gated on panel visibility. */
 export const extensionStats = derived(
-  [tree, zoomRoot],
-  ([$tree, $zoomRoot]) => {
-    if (!$tree) return [];
+  [tree, zoomRoot, showExtensionPanel],
+  ([$tree, $zoomRoot, $show]) => {
+    if (!$show || !$tree) return [];
     let root = $tree;
     if ($zoomRoot) {
       const found = findNodeByPath($tree, $zoomRoot);
@@ -35,13 +38,10 @@ export const extensionStats = derived(
   },
 );
 
-/** Dynamic color map derived from extension stats. */
+/** Dynamic color map derived from extension stats (pure, no side-effects). */
 export const extensionColorMap = derived(
   extensionStats,
   ($stats) => {
-    const map = buildColorMap($stats);
-    // Also apply colors to the stats themselves
-    setActiveColorMap(map);
-    return map;
+    return buildColorMap($stats);
   },
 );

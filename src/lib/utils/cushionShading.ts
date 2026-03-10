@@ -54,33 +54,41 @@ export function computeCushionCoeffs(
   let ay = 0;
   let by = 0;
 
-  // Accumulate contributions from each ancestor level and the leaf itself
-  const allRects = [
-    ...rect.ancestors.map((a) => ({
-      x0: a.x0,
-      y0: a.y0,
-      x1: a.x1,
-      y1: a.y1,
-      depth: a.depth,
-    })),
-    { x0: rect.x0, y0: rect.y0, x1: rect.x1, y1: rect.y1, depth: rect.depth },
-  ];
+  // Accumulate contributions from each ancestor level
+  for (const a of rect.ancestors) {
+    const h = cushionHeight * Math.pow(scaleFactor, a.depth);
 
-  for (const r of allRects) {
-    const h = cushionHeight * Math.pow(scaleFactor, r.depth);
-
-    const dx = r.x1 - r.x0;
+    const dx = a.x1 - a.x0;
     if (dx > 0) {
       const coeff = h * 4 / (dx * dx);
       ax += coeff;
-      bx += coeff * (r.x1 + r.x0);
+      bx += coeff * (a.x1 + a.x0);
     }
 
-    const dy = r.y1 - r.y0;
+    const dy = a.y1 - a.y0;
     if (dy > 0) {
       const coeff = h * 4 / (dy * dy);
       ay += coeff;
-      by += coeff * (r.y1 + r.y0);
+      by += coeff * (a.y1 + a.y0);
+    }
+  }
+
+  // Add the leaf rect itself
+  {
+    const h = cushionHeight * Math.pow(scaleFactor, rect.depth);
+
+    const dx = rect.x1 - rect.x0;
+    if (dx > 0) {
+      const coeff = h * 4 / (dx * dx);
+      ax += coeff;
+      bx += coeff * (rect.x1 + rect.x0);
+    }
+
+    const dy = rect.y1 - rect.y0;
+    if (dy > 0) {
+      const coeff = h * 4 / (dy * dy);
+      ay += coeff;
+      by += coeff * (rect.y1 + rect.y0);
     }
   }
 

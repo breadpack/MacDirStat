@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { FileNode, FlatTreeRow } from "../types";
-  import { tree, progress, dirSizes } from "../stores/scanStore";
+  import { tree, progress, dirSizes, scanning } from "../stores/scanStore";
   import { selectedPath } from "../stores/selectionStore";
   import { sortState, type SortState } from "../stores/columnStore";
   import { getParentPath, recordChildVisit, getLastChild } from "../stores/navigationStore";
@@ -14,12 +14,20 @@
   let sortSizes = $state<Map<string, { size: number; file_count: number }>>(new Map());
 
   $effect(() => {
-    const timer = setInterval(() => {
+    if (!$scanning) {
+      // When not scanning, sync once and stop
       const current = $dirSizes;
       if (current.size > 0) {
         sortSizes = new Map(current);
       } else if (sortSizes.size > 0) {
         sortSizes = new Map();
+      }
+      return;
+    }
+    const timer = setInterval(() => {
+      const current = $dirSizes;
+      if (current.size > 0) {
+        sortSizes = new Map(current);
       }
     }, 3000);
     return () => clearInterval(timer);
@@ -95,6 +103,33 @@
     return sort.direction === "desc" ? -result : result;
   }
 
+  function quickSelectInPlace<T>(arr: T[], lo: number, hi: number, k: number, compare: (a: T, b: T) => number): void {
+    while (lo < hi) {
+      const pivotIdx = lo + ((hi - lo) >> 1);
+      const pivot = arr[pivotIdx];
+      // Move pivot to end
+      [arr[pivotIdx], arr[hi]] = [arr[hi], arr[pivotIdx]];
+      let storeIdx = lo;
+      for (let i = lo; i < hi; i++) {
+        if (compare(arr[i], pivot) < 0) {
+          [arr[storeIdx], arr[i]] = [arr[i], arr[storeIdx]];
+          storeIdx++;
+        }
+      }
+      [arr[storeIdx], arr[hi]] = [arr[hi], arr[storeIdx]];
+      if (storeIdx === k) return;
+      if (storeIdx < k) lo = storeIdx + 1;
+      else hi = storeIdx - 1;
+    }
+  }
+
+  function quickSelectTop<T>(arr: T[], k: number, compare: (a: T, b: T) => number): T[] {
+    if (k >= arr.length) return arr;
+    const work = arr.slice();
+    quickSelectInPlace(work, 0, work.length - 1, k, compare);
+    return work.slice(0, k);
+  }
+
   /**
    * Partial sort: 대량의 children에서 상위 N개만 정렬하여 반환.
    * 전체 정렬(O(n log n)) 대신 부분 선택(O(n + k log k)) 사용.
@@ -116,20 +151,25 @@
     }
     // 각 그룹을 정렬 (디렉토리는 보통 소수)
     dirs.sort((a, b) => compareNodes(a, b, sort, sizes));
-    // 파일이 많으면 partial select: 크기 기준 내림차순이 기본이므로 최적화
     const remaining = n - dirs.length;
     if (remaining <= 0) {
       return dirs.slice(0, n);
     }
     if (files.length <= remaining) {
+      // All files fit, no truncation needed
       files.sort((a, b) => compareNodes(a, b, sort, sizes));
       return [...dirs, ...files];
     }
-    // 파일이 remaining보다 많을 때: 정렬 후 잘라내기
-    // 하지만 files가 수만 개일 수 있으므로 quickselect 대신
-    // 우선 size 기준 내림차순이면 partition으로 최적화
-    files.sort((a, b) => compareNodes(a, b, sort, sizes));
-    return [...dirs, ...files.slice(0, remaining)];
+    if (files.length <= remaining * 3) {
+      // Small enough, full sort is fine
+      files.sort((a, b) => compareNodes(a, b, sort, sizes));
+      return [...dirs, ...files.slice(0, remaining)];
+    }
+    // For large arrays, use partial sort via quickselect
+    const cmp = (a: FileNode, b: FileNode) => compareNodes(a, b, sort, sizes);
+    const topFiles = quickSelectTop(files, remaining, cmp);
+    topFiles.sort(cmp); // sort only the top N
+    return [...dirs, ...topFiles];
   }
 
   /**
@@ -291,31 +331,20 @@
 
   // --- Keyboard navigation ---
 
-  // Lazy path->index lookup: flatRows가 바뀔 때마다 Map을 재구축하지 않고
-  // 필요할 때만 (키보드 네비게이션, 스크롤) indexOf로 조회
-  let _pathIndexCache: Map<string, number> | null = $state(null);
-  let _pathIndexVersion = $state(0);
-  let _lastFlatRowsRef: FlatTreeRow[] | null = $state(null);
+  // Path -> index lookup: $derived rebuilds when flatRows changes
+  let pathIndexMap = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < flatRows.length; i++) {
+      m.set(flatRows[i].node.path, i);
+    }
+    return m;
+  });
 
   function getPathIndex(path: string): number {
-    // flatRows 참조가 바뀌면 캐시 무효화
-    if (_lastFlatRowsRef !== flatRows) {
-      _pathIndexCache = null;
-      _lastFlatRowsRef = flatRows;
-    }
-    // 캐시가 없으면 구축
-    if (!_pathIndexCache) {
-      _pathIndexCache = new Map();
-      for (let i = 0; i < flatRows.length; i++) {
-        _pathIndexCache.set(flatRows[i].node.path, i);
-      }
-    }
-    return _pathIndexCache.get(path) ?? -1;
+    return pathIndexMap.get(path) ?? -1;
   }
 
-  let selectedIndex = $derived(
-    $selectedPath ? getPathIndex($selectedPath) : -1
-  );
+  let selectedIndex = $derived($selectedPath ? (pathIndexMap.get($selectedPath) ?? -1) : -1);
 
   // Record child visits when selection changes
   $effect(() => {

@@ -12,11 +12,12 @@
   import DropOverlay from "./lib/components/DropOverlay.svelte";
   import ExtensionList from "./lib/components/ExtensionList.svelte";
   import PanelResizer from "./lib/components/PanelResizer.svelte";
-  import { tree, scanning, scanLogs, scanError, startScan, refreshSubtree } from "./lib/stores/scanStore";
+  import { tree, scanning, scanLogs, scanError, startScan, refreshSubtree, scanWarnErrorCount } from "./lib/stores/scanStore";
   import { selectedPath, zoomRoot } from "./lib/stores/selectionStore";
   import { showExtensionPanel, extensionColorMap, highlightedExtension } from "./lib/stores/extensionStore";
   import { layoutStore } from "./lib/stores/layoutStore";
   import { setActiveColorMap } from "./lib/utils/colorMap";
+  import { get } from "svelte/store";
   import { checkFullDiskAccess } from "./lib/api";
   import { matchShortcut, isTextInputFocused, SHORTCUTS } from "./lib/utils/shortcuts";
   import {
@@ -48,7 +49,9 @@
   // Sync layoutStore.showExtensions <-> extensionStore.showExtensionPanel
   $effect(() => {
     const unsub = layoutStore.subscribe((l) => {
-      showExtensionPanel.set(l.showExtensions);
+      if (get(showExtensionPanel) !== l.showExtensions) {
+        showExtensionPanel.set(l.showExtensions);
+      }
     });
     return unsub;
   });
@@ -89,13 +92,14 @@
     return () => mq.removeEventListener("change", handler);
   });
 
-  let errorCount = $derived($scanLogs.filter((l) => l.level === "error" || l.level === "warn").length);
+  let errorCount = $derived($scanWarnErrorCount);
 
   // Activate/deactivate dynamic color map based on extension panel visibility.
   $effect(() => {
     if ($showExtensionPanel) {
-      // Subscribe to extensionColorMap to trigger dynamic color assignment
-      const unsub = extensionColorMap.subscribe(() => {});
+      const unsub = extensionColorMap.subscribe((map) => {
+        setActiveColorMap(map);
+      });
       return () => {
         unsub();
         setActiveColorMap(null);
@@ -122,8 +126,11 @@
 
   // Drag & drop event listener
   $effect(() => {
+    let cancelled = false;
+    let unlistenFn: (() => void) | null = null;
     const appWindow = getCurrentWindow();
-    const unlisten = appWindow.onDragDropEvent((event) => {
+    appWindow.onDragDropEvent((event) => {
+      if (cancelled) return;
       if (event.payload.type === "over") {
         dragOver = true;
       } else if (event.payload.type === "drop") {
@@ -132,10 +139,14 @@
       } else if (event.payload.type === "leave") {
         dragOver = false;
       }
+    }).then((fn) => {
+      if (cancelled) { fn(); return; }
+      unlistenFn = fn;
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      cancelled = true;
+      unlistenFn?.();
     };
   });
 

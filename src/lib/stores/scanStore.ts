@@ -27,9 +27,13 @@ export const scanError = writable<string | null>(null);
 export const scanCancelled = writable(false);
 export const scanLogs = writable<ScanLogEntry[]>([]);
 export const scanningDirs = writable<Set<string>>(new Set());
+export const scanWarnErrorCount = writable(0);
 
 /** 스캔 중 디렉토리별 실시간 크기: path → { size, file_count } */
 export const dirSizes = writable<Map<string, { size: number; file_count: number }>>(new Map());
+
+/** Module-level mutable map for dirSizes to avoid copying on every tick */
+let _dirSizesMap = new Map<string, { size: number; file_count: number }>();
 
 /** True while a partial subtree refresh is in progress (does not block full UI). */
 export const partialScanning = writable(false);
@@ -39,12 +43,14 @@ export const currentVolume = writable<VolumeInfo | null>(null);
 
 export async function startScan(path: string) {
   tree.set(null);
-  dirSizes.set(new Map());
+  _dirSizesMap = new Map();
+  dirSizes.set(_dirSizesMap);
   clearHistory();
   scanning.set(true);
   scanError.set(null);
   scanCancelled.set(false);
   scanLogs.set([]);
+  scanWarnErrorCount.set(0);
   progress.set(INITIAL_PROGRESS);
   scanningDirs.set(new Set());
   currentVolume.set(null);
@@ -65,23 +71,27 @@ export async function startScan(path: string) {
     progress.set(msg);
 
     if (msg.scanning_dirs) {
-      scanningDirs.set(new Set(msg.scanning_dirs));
+      const newDirs = msg.scanning_dirs;
+      scanningDirs.update((prev) => {
+        if (prev.size === newDirs.length && newDirs.every(d => prev.has(d))) return prev;
+        return new Set(newDirs);
+      });
     }
 
-    // 디렉토리별 실시간 크기 머지 (부분 업데이트 지원)
+    // 디렉토리별 실시간 크기 머지 (부분 업데이트 지원, in-place mutation)
     if (msg.dir_sizes && msg.dir_sizes.length > 0) {
-      dirSizes.update((prev) => {
-        const next = new Map(prev);
-        for (const [path, size, fc] of msg.dir_sizes) {
-          next.set(path, { size, file_count: fc });
-        }
-        return next;
-      });
+      for (const [path, size, fc] of msg.dir_sizes) {
+        _dirSizesMap.set(path, { size, file_count: fc });
+      }
+      dirSizes.set(_dirSizesMap);
     }
   };
 
   const logChannel = new Channel<ScanLogEntry>();
   logChannel.onmessage = (entry) => {
+    if (entry.level === "error" || entry.level === "warn") {
+      scanWarnErrorCount.update(n => n + 1);
+    }
     scanLogs.update((logs) => {
       const next = [...logs, entry];
       return next.length > 5000 ? next.slice(-5000) : next;
@@ -104,7 +114,8 @@ export async function startScan(path: string) {
 
   try {
     const result = await scanDirectory(path, progressChannel, logChannel, treeChannel, scanOptions);
-    dirSizes.set(new Map()); // 최종 트리는 정확한 크기를 가짐
+    _dirSizesMap = new Map();
+    dirSizes.set(_dirSizesMap); // 최종 트리는 정확한 크기를 가짐
     tree.set(result);
   } catch (e) {
     if (!get(scanCancelled)) {

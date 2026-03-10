@@ -50,7 +50,7 @@ function createLayoutStore() {
 
   function ensureOneVisible(layout: PanelLayout): PanelLayout {
     if (!layout.showTree && !layout.showExtensions && !layout.showTreemap) {
-      layout.showTree = true;
+      return { ...layout, showTree: true };
     }
     return layout;
   }

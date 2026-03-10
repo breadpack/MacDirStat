@@ -51,10 +51,6 @@ pub async fn scan_directory(
     .await
     .map_err(|e| e.to_string())?;
 
-    if let Some(ref tree) = result {
-        *state.tree.lock().await = Some(tree.clone());
-    }
-
     Ok(result)
 }
 

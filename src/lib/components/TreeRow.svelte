@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { FlatTreeRow } from "../types";
-  import type { ColumnDef } from "../stores/columnStore";
   import { columns } from "../stores/columnStore";
   import { formatSize, formatNumber, formatDate } from "../utils/format";
   import { selectedPath, hoveredPath } from "../stores/selectionStore";
@@ -15,14 +14,7 @@
 
   let { row, parentSize, onToggle, onContextMenu }: Props = $props();
 
-  let columnDefs = $state<ColumnDef[]>([]);
-
-  $effect(() => {
-    const unsub = columns.subscribe((v) => {
-      columnDefs = v;
-    });
-    return unsub;
-  });
+  let columnDefs = $derived($columns);
 
   let visibleColumns = $derived(columnDefs.filter((c) => c.visible));
 
@@ -55,12 +47,16 @@
     }
   }
 
+  let hoverRaf: number | undefined;
+
   function handleMouseEnter() {
-    hoveredPath.set(row.node.path);
+    if (hoverRaf) cancelAnimationFrame(hoverRaf);
+    hoverRaf = requestAnimationFrame(() => hoveredPath.set(row.node.path));
   }
 
   function handleMouseLeave() {
-    hoveredPath.set(null);
+    if (hoverRaf) cancelAnimationFrame(hoverRaf);
+    hoverRaf = requestAnimationFrame(() => hoveredPath.set(null));
   }
 </script>
 

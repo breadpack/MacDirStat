@@ -1,9 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
+use dashmap::{DashMap, DashSet};
 use rayon::prelude::*;
 use tauri::ipc::Channel;
 
@@ -61,6 +62,9 @@ pub fn scan_directory(
     on_tree: Channel<FileNode>,
     options: ScanOptions,
 ) -> Option<FileNode> {
+    // Reset skip log count at scan start
+    SKIP_LOG_COUNT.store(0, Ordering::Relaxed);
+
     let root_path = Path::new(root);
     if !root_path.exists() {
         send_log(&on_log, "error", &format!("Path does not exist: {}", root), root);
@@ -113,10 +117,10 @@ pub fn scan_directory(
     let completed_dirs = Arc::new(AtomicU32::new(0));
     let total_files = Arc::new(AtomicU64::new(0));
     let total_bytes = Arc::new(AtomicU64::new(0));
-    let dir_sizes_map: Arc<Mutex<HashMap<String, (u64, u64)>>> = Arc::new(Mutex::new(HashMap::new()));
-    let file_results: Arc<Mutex<HashMap<String, Vec<FileNode>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let dir_sizes_map: Arc<DashMap<String, (u64, u64)>> = Arc::new(DashMap::new());
+    let file_results: Arc<DashMap<String, Vec<FileNode>>> = Arc::new(DashMap::new());
     // Track seen inodes to avoid counting hardlinked files multiple times
-    let seen_inodes: Arc<Mutex<HashSet<u64>>> = Arc::new(Mutex::new(HashSet::new()));
+    let seen_inodes: Arc<DashSet<u64>> = Arc::new(DashSet::new());
 
     let _ = on_progress.send(ScanProgress {
         current_path: root.to_string(),
@@ -143,20 +147,17 @@ pub fn scan_directory(
                 if !running.load(Ordering::Relaxed) { break; }
 
                 // 변경분만 추출 (최대 500개로 제한하여 채널 과부하 방지)
-                let sizes: Vec<(String, u64, u64)> = {
-                    let map = dsm.lock().unwrap();
-                    let current_count = map.len();
-                    if current_count == last_sent_count {
-                        Vec::new()
-                    } else {
-                        let delta: Vec<(String, u64, u64)> = map.iter()
-                            .skip(last_sent_count)
-                            .take(500)
-                            .map(|(p, (s, f))| (p.clone(), *s, *f))
-                            .collect();
-                        last_sent_count = std::cmp::min(last_sent_count + 500, current_count);
-                        delta
-                    }
+                let current_count = dsm.len();
+                let sizes: Vec<(String, u64, u64)> = if current_count == last_sent_count {
+                    Vec::new()
+                } else {
+                    let delta: Vec<(String, u64, u64)> = dsm.iter()
+                        .skip(last_sent_count)
+                        .take(500)
+                        .map(|entry| (entry.key().clone(), entry.value().0, entry.value().1))
+                        .collect();
+                    last_sent_count = std::cmp::min(last_sent_count + 500, current_count);
+                    delta
                 };
 
                 let _ = prog.send(ScanProgress {
@@ -218,8 +219,7 @@ pub fn scan_directory(
 
                     // Skip hardlinked files already counted (nlink > 1 means multiple hardlinks)
                     if nlink > 1 && ino != 0 {
-                        let mut seen = seen_inodes.lock().unwrap();
-                        if !seen.insert(ino) {
+                        if !seen_inodes.insert(ino) {
                             // Already counted this inode, skip
                             continue;
                         }
@@ -271,12 +271,10 @@ pub fn scan_directory(
         completed_dirs.fetch_add(1, Ordering::Relaxed);
 
         if count > 0 {
-            dir_sizes_map.lock().unwrap()
-                .insert(dir_path.clone(), (bytes, count));
+            dir_sizes_map.insert(dir_path.clone(), (bytes, count));
         }
         if !files.is_empty() {
-            file_results.lock().unwrap()
-                .insert(dir_path.clone(), files);
+            file_results.insert(dir_path.clone(), files);
         }
     });
 
@@ -289,10 +287,10 @@ pub fn scan_directory(
         return None;
     }
 
-    // 최종 트리 조립
-    let mut file_map = match Arc::try_unwrap(file_results) {
-        Ok(mutex) => mutex.into_inner().unwrap(),
-        Err(arc) => arc.lock().unwrap().clone(),
+    // 최종 트리 조립 — convert DashMap to HashMap
+    let mut file_map: HashMap<String, Vec<FileNode>> = match Arc::try_unwrap(file_results) {
+        Ok(map) => map.into_iter().collect(),
+        Err(arc) => arc.iter().map(|entry| (entry.key().clone(), entry.value().clone())).collect(),
     };
 
     let final_tree = scanner_tree::assemble_tree(&skeleton, &mut file_map);

@@ -16,47 +16,81 @@ pub fn collect_all_dir_paths(node: &FileNode, paths: &mut Vec<String>) {
     }
 }
 
-/// skeleton 트리에 스캔된 파일을 결합하여 최종 트리 생성
+/// skeleton 트리에 스캔된 파일을 결합하여 최종 트리 생성 (iterative, stack-safe)
 pub fn assemble_tree(skeleton: &FileNode, file_map: &mut HashMap<String, Vec<FileNode>>) -> FileNode {
-    let mut children: Vec<FileNode> = Vec::new();
-
-    // 서브 디렉토리 재귀 조립
-    for child in &skeleton.children {
-        children.push(assemble_tree(child, file_map));
+    struct NodeInfo<'a> {
+        skeleton: &'a FileNode,
+        child_indices: Vec<usize>,
     }
 
-    // 이 디렉토리의 파일 추가
-    if let Some(files) = file_map.remove(&skeleton.path) {
-        children.extend(files);
+    // Phase 1: Flatten the skeleton tree in pre-order, recording parent-child relationships
+    let mut nodes: Vec<NodeInfo> = Vec::new();
+    let mut stack: Vec<(&FileNode, Option<usize>)> = vec![(skeleton, None)];
+
+    while let Some((skel, parent_idx)) = stack.pop() {
+        let current_idx = nodes.len();
+        if let Some(pi) = parent_idx {
+            nodes[pi].child_indices.push(current_idx);
+        }
+        nodes.push(NodeInfo {
+            skeleton: skel,
+            child_indices: Vec::new(),
+        });
+        // Push children in reverse so they appear in order
+        for child in skel.children.iter().rev() {
+            stack.push((child, Some(current_idx)));
+        }
     }
 
-    children.sort_by(|a, b| b.size.cmp(&a.size));
-    let size: u64 = children.iter().map(|c| c.size).sum();
-    let file_count: u64 = children.iter().map(|c| c.file_count).sum();
-    let dir_count: u64 = children.iter()
-        .filter(|c| c.is_dir)
-        .map(|c| 1 + c.dir_count)
-        .sum();
-    // Bubble up the latest modified time from children
-    let modified: Option<u64> = children.iter()
-        .filter_map(|c| c.modified)
-        .max();
-    let is_hidden = skeleton.name.starts_with('.');
+    // Phase 2: Build FileNodes bottom-up (reverse order ensures children built before parents)
+    let mut results: Vec<Option<FileNode>> = vec![None; nodes.len()];
 
-    FileNode {
-        name: skeleton.name.clone(),
-        path: skeleton.path.clone(),
-        size,
-        is_dir: true,
-        children,
-        file_count,
-        dir_count,
-        modified,
-        is_symlink: false,
-        is_hidden,
-        is_readonly: false,
-        extension: None,
+    for i in (0..nodes.len()).rev() {
+        let info = &nodes[i];
+        let skel = info.skeleton;
+
+        let mut children: Vec<FileNode> = Vec::with_capacity(info.child_indices.len());
+        for &ci in &info.child_indices {
+            if let Some(child) = results[ci].take() {
+                children.push(child);
+            }
+        }
+
+        // Add file children
+        if let Some(files) = file_map.remove(&skel.path) {
+            children.extend(files);
+        }
+
+        children.sort_by(|a, b| b.size.cmp(&a.size));
+        let size: u64 = children.iter().map(|c| c.size).sum();
+        let file_count: u64 = children.iter().map(|c| c.file_count).sum();
+        let dir_count: u64 = children.iter()
+            .filter(|c| c.is_dir)
+            .map(|c| 1 + c.dir_count)
+            .sum();
+        // Bubble up the latest modified time from children
+        let modified: Option<u64> = children.iter()
+            .filter_map(|c| c.modified)
+            .max();
+        let is_hidden = skel.name.starts_with('.');
+
+        results[i] = Some(FileNode {
+            name: skel.name.clone(),
+            path: skel.path.clone(),
+            size,
+            is_dir: true,
+            children,
+            file_count,
+            dir_count,
+            modified,
+            is_symlink: false,
+            is_hidden,
+            is_readonly: false,
+            extension: None,
+        });
     }
+
+    results[0].take().unwrap_or_else(|| skeleton.clone())
 }
 
 pub fn build_skeleton(
@@ -214,29 +248,101 @@ pub fn build_skeleton(
     Some(build_tree(&mut nodes, 0))
 }
 
-pub fn prune_tree(node: FileNode, max_children: usize) -> FileNode {
-    if !node.is_dir || node.children.is_empty() { return node; }
+/// Prune tree to limit children per directory (iterative, stack-safe)
+pub fn prune_tree(root: FileNode, max_children: usize) -> FileNode {
+    struct NodeInfo {
+        node: FileNode,
+        child_indices: Vec<usize>,
+    }
 
-    let (dirs, files): (Vec<FileNode>, Vec<FileNode>) = node.children.into_iter().partition(|c| c.is_dir);
-    let mut children: Vec<FileNode> = dirs.into_iter().map(|d| prune_tree(d, max_children)).collect();
+    // Phase 1: Flatten the tree in pre-order, extracting children
+    let mut nodes: Vec<NodeInfo> = Vec::new();
+    // Stack holds (FileNode, parent_idx)
+    let mut stack: Vec<(FileNode, Option<usize>)> = vec![(root, None)];
 
-    if files.len() <= max_children {
-        children.extend(files);
-    } else {
-        let mut files = files;
-        let rest = files.split_off(max_children);
-        let others_size: u64 = rest.iter().map(|c| c.size).sum();
-        let others_fc: u64 = rest.iter().map(|c| c.file_count).sum();
-        children.extend(files);
-        children.push(FileNode {
-            name: format!("({} other files)", rest.len()),
-            path: format!("{}/__others__", node.path),
-            size: others_size, is_dir: false, children: Vec::new(),
-            file_count: others_fc, extension: None,
-            dir_count: 0, modified: None, is_symlink: false, is_hidden: false, is_readonly: false,
+    while let Some((mut node, parent_idx)) = stack.pop() {
+        let current_idx = nodes.len();
+        if let Some(pi) = parent_idx {
+            nodes[pi].child_indices.push(current_idx);
+        }
+
+        // Take children out of node before storing
+        let children = std::mem::take(&mut node.children);
+        nodes.push(NodeInfo {
+            node,
+            child_indices: Vec::new(),
+        });
+
+        // Push children in reverse so they come out in order
+        for child in children.into_iter().rev() {
+            stack.push((child, Some(current_idx)));
+        }
+    }
+
+    // Phase 2: Process bottom-up, applying pruning logic
+    let mut results: Vec<Option<FileNode>> = vec![None; nodes.len()];
+
+    for i in (0..nodes.len()).rev() {
+        let info = &nodes[i];
+        let node = &info.node;
+
+        if !node.is_dir || info.child_indices.is_empty() {
+            // Leaf or file node — return as-is (with empty children already taken)
+            results[i] = Some(FileNode {
+                children: Vec::new(),
+                ..node.clone()
+            });
+            continue;
+        }
+
+        // Collect built children
+        let built_children: Vec<FileNode> = info.child_indices.iter()
+            .filter_map(|&ci| results[ci].take())
+            .collect();
+
+        // Partition into dirs and files
+        let (dirs, files): (Vec<FileNode>, Vec<FileNode>) = built_children.into_iter()
+            .partition(|c| c.is_dir);
+
+        let mut children: Vec<FileNode> = dirs;
+
+        if files.len() <= max_children {
+            children.extend(files);
+        } else {
+            let mut files = files;
+            let rest = files.split_off(max_children);
+            let others_size: u64 = rest.iter().map(|c| c.size).sum();
+            let others_fc: u64 = rest.iter().map(|c| c.file_count).sum();
+            children.extend(files);
+            children.push(FileNode {
+                name: format!("({} other files)", rest.len()),
+                path: format!("{}/__others__", node.path),
+                size: others_size, is_dir: false, children: Vec::new(),
+                file_count: others_fc, extension: None,
+                dir_count: 0, modified: None, is_symlink: false, is_hidden: false, is_readonly: false,
+            });
+        }
+
+        children.sort_by(|a, b| b.size.cmp(&a.size));
+
+        results[i] = Some(FileNode {
+            children,
+            ..node.clone()
         });
     }
 
-    children.sort_by(|a, b| b.size.cmp(&a.size));
-    FileNode { children, ..node }
+    results[0].take().unwrap_or_else(|| FileNode {
+        name: String::new(),
+        path: String::new(),
+        size: 0,
+        is_dir: true,
+        children: Vec::new(),
+        file_count: 0,
+        extension: None,
+        dir_count: 0,
+        modified: None,
+        is_symlink: false,
+        is_hidden: false,
+        is_readonly: false,
+    })
 }

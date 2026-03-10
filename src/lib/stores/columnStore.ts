@@ -68,12 +68,16 @@ function loadSort(): SortState {
 function createColumnStore() {
   const { subscribe, set, update } = writable<ColumnDef[]>(loadColumns());
 
+  let colSaveTimer: ReturnType<typeof setTimeout> | null = null;
   subscribe((cols) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cols));
-    } catch {
-      // ignore
-    }
+    if (colSaveTimer) clearTimeout(colSaveTimer);
+    colSaveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cols));
+      } catch {
+        // ignore
+      }
+    }, 300);
   });
 
   return {
@@ -99,12 +103,16 @@ function createColumnStore() {
 function createSortStore() {
   const { subscribe, set, update } = writable<SortState>(loadSort());
 
+  let sortSaveTimer: ReturnType<typeof setTimeout> | null = null;
   subscribe((sort) => {
-    try {
-      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort));
-    } catch {
-      // ignore
-    }
+    if (sortSaveTimer) clearTimeout(sortSaveTimer);
+    sortSaveTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(sort));
+      } catch {
+        // ignore
+      }
+    }, 300);
   });
 
   return {

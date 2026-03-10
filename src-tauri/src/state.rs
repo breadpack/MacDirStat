@@ -6,7 +6,7 @@ use crate::models::FileNode;
 
 pub struct ScanState {
     pub cancel_token: Arc<AtomicBool>,
-    pub tree: Mutex<Option<FileNode>>,
+    pub tree: Mutex<Option<Arc<FileNode>>>,
 }
 
 impl ScanState {

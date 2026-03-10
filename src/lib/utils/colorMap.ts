@@ -12,6 +12,9 @@ export const GRAY_COLOR = "#666666";
 /** Currently active dynamic color map. null = use static EXTENSION_COLORS. */
 let activeColorMap: Map<string, string> | null = null;
 
+/** Cache for RGB color conversions, cleared when active color map changes. */
+const rgbCache = new Map<string, { r: number; g: number; b: number }>();
+
 /**
  * Build a dynamic color map from extension stats.
  * Top 12 extensions get palette colors, rest get gray.
@@ -27,6 +30,7 @@ export function buildColorMap(stats: ExtensionStat[]): Map<string, string> {
 /** Set the active dynamic color map (or null to use static colors). */
 export function setActiveColorMap(map: Map<string, string> | null) {
   activeColorMap = map;
+  rgbCache.clear();
 }
 
 /** Get the currently active color map. */
@@ -108,10 +112,15 @@ export interface RGB {
 }
 
 export function getColorRGB(extension: string | null, isDir: boolean): RGB {
+  const key = `${extension ?? ""}|${isDir ? "1" : "0"}`;
+  let cached = rgbCache.get(key);
+  if (cached) return cached;
   const hex = getColor(extension, isDir);
-  return {
+  cached = {
     r: parseInt(hex.slice(1, 3), 16),
     g: parseInt(hex.slice(3, 5), 16),
     b: parseInt(hex.slice(5, 7), 16),
   };
+  rgbCache.set(key, cached);
+  return cached;
 }
