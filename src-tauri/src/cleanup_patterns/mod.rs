@@ -16,13 +16,12 @@ use serde::{Deserialize, Serialize};
 // ── Enums ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
 pub enum CleanupCategory {
     DevTools,
-    PackageManagers,
-    Containers,
-    Browsers,
-    Ides,
+    PackageManager,
+    Container,
+    Browser,
+    IDE,
     System,
     CloudStorage,
     AppData,
@@ -30,22 +29,17 @@ pub enum CleanupCategory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum RiskLevel {
     Safe,
-    Low,
-    Medium,
-    High,
+    Caution,
+    Warning,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone)]
 pub enum DetectionMethod {
     PathPattern {
-        dir_name: &'static str,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        dir_name: Option<&'static str>,
         path_contains: Option<&'static str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         parent_marker: Option<&'static str>,
     },
     KnownPath {
@@ -54,13 +48,12 @@ pub enum DetectionMethod {
     },
     Command {
         check_cmd: &'static str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        parse_hint: Option<&'static str>,
+        parse_hint: &'static str,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type")]
 pub enum CleanupMethod {
     Delete {
         use_trash: bool,
@@ -78,33 +71,35 @@ pub enum CleanupMethod {
 #[derive(Debug, Clone)]
 pub struct CleanupPattern {
     pub id: &'static str,
+    pub category: CleanupCategory,
     pub name: &'static str,
     pub description: &'static str,
-    pub category: CleanupCategory,
-    pub risk: RiskLevel,
+    pub risk_level: RiskLevel,
     pub detection: DetectionMethod,
     pub cleanup: CleanupMethod,
 }
 
-// ── Serializable types ──
+// ── Serializable types for frontend ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanupPatternInfo {
     pub id: String,
+    pub category: CleanupCategory,
     pub name: String,
     pub description: String,
-    pub category: CleanupCategory,
-    pub risk: RiskLevel,
+    pub risk_level: RiskLevel,
+    pub cleanup_method: CleanupMethod,
 }
 
 impl From<&CleanupPattern> for CleanupPatternInfo {
     fn from(p: &CleanupPattern) -> Self {
         CleanupPatternInfo {
             id: p.id.to_string(),
+            category: p.category.clone(),
             name: p.name.to_string(),
             description: p.description.to_string(),
-            category: p.category.clone(),
-            risk: p.risk.clone(),
+            risk_level: p.risk_level.clone(),
+            cleanup_method: p.cleanup.clone(),
         }
     }
 }
@@ -112,27 +107,27 @@ impl From<&CleanupPattern> for CleanupPatternInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanupRecommendation {
     pub pattern_id: String,
-    pub path: String,
-    pub size: u64,
-    pub name: String,
-    pub description: String,
+    pub pattern_name: String,
     pub category: CleanupCategory,
-    pub risk: RiskLevel,
-    pub cleanup: CleanupMethod,
+    pub risk_level: RiskLevel,
+    pub description: String,
+    pub paths: Vec<String>,
+    pub total_size: u64,
+    pub cleanup_method: CleanupMethod,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanupScanProgress {
-    pub phase: String,
-    pub checked: u32,
-    pub total: u32,
     pub current_pattern: String,
+    pub checked: usize,
+    pub total: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanupResult {
-    pub recommendations: Vec<CleanupRecommendation>,
-    pub total_reclaimable: u64,
+    pub success: bool,
+    pub freed_bytes: u64,
+    pub message: String,
 }
 
 // ── Functions ──
@@ -151,30 +146,35 @@ pub fn all_patterns() -> Vec<CleanupPattern> {
     patterns
 }
 
-/// Build a map from dir_name -> Vec<CleanupPattern> for PathPattern-based detection
-pub fn build_scan_pattern_map() -> HashMap<String, Vec<CleanupPattern>> {
-    let mut map: HashMap<String, Vec<CleanupPattern>> = HashMap::new();
-    for p in all_patterns() {
-        if let DetectionMethod::PathPattern { dir_name, .. } = &p.detection {
-            map.entry(dir_name.to_string())
-                .or_default()
-                .push(p);
+/// Build a map from dir_name -> Vec<usize> (pattern indices) for scan-time matching
+pub fn build_scan_pattern_map(patterns: &[CleanupPattern]) -> HashMap<String, Vec<usize>> {
+    let mut map: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, p) in patterns.iter().enumerate() {
+        if let DetectionMethod::PathPattern { dir_name: Some(name), .. } = &p.detection {
+            map.entry(name.to_string()).or_default().push(i);
         }
     }
     map
 }
 
 /// Check if a path matches a PathPattern's additional constraints
-pub fn matches_path_pattern(path: &Path, pattern: &CleanupPattern) -> bool {
+pub fn matches_path_pattern(pattern: &CleanupPattern, path: &Path) -> bool {
     if let DetectionMethod::PathPattern {
-        dir_name: _,
+        dir_name,
         path_contains,
         parent_marker,
     } = &pattern.detection
     {
-        let path_str = path.to_string_lossy();
+        if let Some(expected_name) = dir_name {
+            let actual_name = path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if actual_name != *expected_name {
+                return false;
+            }
+        }
         if let Some(contains) = path_contains {
-            if !path_str.contains(contains) {
+            if !path.to_string_lossy().contains(contains) {
                 return false;
             }
         }
@@ -195,20 +195,19 @@ pub fn matches_path_pattern(path: &Path, pattern: &CleanupPattern) -> bool {
 
 /// Expand ~ to the user's home directory
 pub fn expand_home(path: &str) -> PathBuf {
-    if path.starts_with('~') {
-        if let Some(home) = dirs_next_home() {
-            return PathBuf::from(path.replacen('~', &home, 1));
-        }
+    if path.starts_with("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        PathBuf::from(home).join(&path[2..])
+    } else {
+        PathBuf::from(path)
     }
-    PathBuf::from(path)
-}
-
-fn dirs_next_home() -> Option<String> {
-    std::env::var("HOME").ok()
 }
 
 /// Recursively calculate directory size using walkdir
 pub fn dir_size(path: &Path) -> u64 {
+    if path.is_file() {
+        return path.metadata().map(|m| m.len()).unwrap_or(0);
+    }
     walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
