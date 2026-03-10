@@ -91,6 +91,9 @@
         {:else}
           <span class="icon">{row.node.is_dir ? "\uD83D\uDCC1" : "\uD83D\uDCC4"}</span>
         {/if}
+        {#if row.node.cleanup_pattern_id}
+          <span class="cleanup-badge" title="Cleanable: {row.node.cleanup_pattern_id}">&#x1F9F9;</span>
+        {/if}
         <span class="name-text" title={row.node.name}>{row.node.name}</span>
       </div>
     {:else if col.id === "size"}
@@ -201,6 +204,17 @@
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+  }
+
+  .cleanup-badge {
+    font-size: 11px;
+    margin-right: 2px;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .tree-row:hover .cleanup-badge {
+    opacity: 1;
   }
 
   .name-text {
