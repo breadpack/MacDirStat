@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tauri::ipc::Channel;
 
+use crate::cleanup_patterns::{self, CleanupPattern};
 use crate::models::{FileNode, ScanLogEntry, ScanProgress};
 use crate::scanner::{is_ignorable_error, make_progress, send_log, should_skip_dynamic, ScanOptions};
 
@@ -87,7 +88,7 @@ pub fn assemble_tree(skeleton: &FileNode, file_map: &mut HashMap<String, Vec<Fil
             is_hidden,
             is_readonly: false,
             extension: None,
-            cleanup_pattern_id: None,
+            cleanup_pattern_id: skel.cleanup_pattern_id.clone(),
         });
     }
 
@@ -98,6 +99,7 @@ pub fn build_skeleton(
     root: &Path, cancel_token: &Arc<AtomicBool>,
     on_progress: &Channel<ScanProgress>, on_log: &Channel<ScanLogEntry>,
     dir_count: &mut u32, options: &ScanOptions, root_dev: Option<u64>,
+    scan_pattern_map: &HashMap<String, Vec<usize>>, all_patterns: &[CleanupPattern],
 ) -> Option<FileNode> {
     // Fix 3: Track visited inodes to detect circular symlinks
     let mut visited_inodes: HashSet<u64> = HashSet::new();
@@ -121,6 +123,7 @@ pub fn build_skeleton(
         path: String,
         is_hidden: bool,
         children_indices: Vec<usize>,
+        cleanup_pattern_id: Option<String>,
     }
 
     let root_str = root.to_string_lossy().to_string();
@@ -133,6 +136,7 @@ pub fn build_skeleton(
         path: root_str,
         is_hidden: root.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(false),
         children_indices: Vec::new(),
+        cleanup_pattern_id: None,
     }];
 
     let mut stack: Vec<StackFrame> = vec![StackFrame {
@@ -202,12 +206,24 @@ pub fn build_skeleton(
                     .unwrap_or_else(|| child_str.clone());
                 let is_hidden = child_name.starts_with('.');
 
+                let cleanup_id = scan_pattern_map.get(&child_name)
+                    .and_then(|indices| {
+                        indices.iter().find_map(|&i| {
+                            if cleanup_patterns::matches_path_pattern(&all_patterns[i], &child_path) {
+                                Some(all_patterns[i].id.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                    });
+
                 let child_index = nodes.len();
                 nodes.push(FlatNode {
                     name: child_name,
                     path: child_str,
                     is_hidden,
                     children_indices: Vec::new(),
+                    cleanup_pattern_id: cleanup_id,
                 });
                 nodes[frame.node_index].children_indices.push(child_index);
 
@@ -243,7 +259,7 @@ pub fn build_skeleton(
             is_symlink: false,
             is_hidden: nodes[index].is_hidden,
             is_readonly: false,
-            cleanup_pattern_id: None,
+            cleanup_pattern_id: nodes[index].cleanup_pattern_id.clone(),
         }
     }
 

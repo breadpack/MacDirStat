@@ -88,9 +88,13 @@ pub fn scan_directory(
 
     send_log(&on_log, "info", "Phase 1: Scanning directory structure...", root);
 
+    let patterns = crate::cleanup_patterns::all_patterns();
+    let scan_map = crate::cleanup_patterns::build_scan_pattern_map(&patterns);
+
     let mut dir_count: u32 = 0;
     let skeleton = scanner_tree::build_skeleton(
         root_path, &cancel_token, &on_progress, &on_log, &mut dir_count, &options, root_dev,
+        &scan_map, &patterns,
     );
 
     if cancel_token.load(Ordering::Relaxed) {
