@@ -31,6 +31,9 @@ pub fn run() {
             commands::get_cleanup_actions,
             commands::save_cleanup_actions,
             commands::execute_cleanup,
+            commands::scan_cleanup_recommendations,
+            commands::execute_cleanup_recommendation,
+            commands::get_cleanup_patterns,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -4,6 +4,10 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::cleanup_patterns::{
+    self, CleanupMethod, CleanupPatternInfo, CleanupRecommendation, CleanupResult,
+    CleanupScanProgress, DetectionMethod,
+};
 use crate::config;
 use crate::models::{CleanupAction, CleanupTarget, FileNode, ScanLogEntry, ScanProgress, VolumeInfo};
 use crate::platform;
@@ -271,4 +275,167 @@ fn execute_background(command: &str) -> Result<String, String> {
             stderr
         })
     }
+}
+
+// ── Cleanup recommendation commands ──
+
+#[tauri::command]
+pub async fn scan_cleanup_recommendations(
+    on_progress: Channel<CleanupScanProgress>,
+) -> Result<Vec<CleanupRecommendation>, String> {
+    let patterns = cleanup_patterns::all_patterns();
+    let total = patterns.len();
+    let mut recommendations = Vec::new();
+
+    for (i, pattern) in patterns.iter().enumerate() {
+        let _ = on_progress.send(CleanupScanProgress {
+            current_pattern: pattern.name.to_string(),
+            checked: i + 1,
+            total,
+        });
+
+        match &pattern.detection {
+            DetectionMethod::KnownPath { path, .. } => {
+                let expanded = cleanup_patterns::expand_home(path);
+                if expanded.exists() {
+                    let size = cleanup_patterns::dir_size(&expanded);
+                    recommendations.push(CleanupRecommendation {
+                        pattern_id: pattern.id.to_string(),
+                        pattern_name: pattern.name.to_string(),
+                        category: pattern.category.clone(),
+                        risk_level: pattern.risk_level.clone(),
+                        description: pattern.description.to_string(),
+                        paths: vec![expanded.to_string_lossy().to_string()],
+                        total_size: size,
+                        cleanup_method: pattern.cleanup.clone(),
+                    });
+                }
+            }
+            DetectionMethod::Command { check_cmd, .. } => {
+                let output = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(check_cmd)
+                    .output();
+
+                if let Ok(output) = output {
+                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !stdout.is_empty() && stdout != "0" {
+                        recommendations.push(CleanupRecommendation {
+                            pattern_id: pattern.id.to_string(),
+                            pattern_name: pattern.name.to_string(),
+                            category: pattern.category.clone(),
+                            risk_level: pattern.risk_level.clone(),
+                            description: pattern.description.to_string(),
+                            paths: vec![],
+                            total_size: 0,
+                            cleanup_method: pattern.cleanup.clone(),
+                        });
+                    }
+                }
+            }
+            DetectionMethod::PathPattern { .. } => {
+                // PathPattern is handled during scan, skip here
+            }
+        }
+    }
+
+    recommendations.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+    Ok(recommendations)
+}
+
+#[tauri::command]
+pub async fn execute_cleanup_recommendation(
+    pattern_id: String,
+    paths: Vec<String>,
+) -> Result<CleanupResult, String> {
+    let patterns = cleanup_patterns::all_patterns();
+    let pattern = patterns
+        .iter()
+        .find(|p| p.id == pattern_id)
+        .ok_or_else(|| format!("Pattern not found: {}", pattern_id))?;
+
+    match &pattern.cleanup {
+        CleanupMethod::Delete { use_trash } => {
+            let use_trash = *use_trash;
+            let mut total_freed: u64 = 0;
+
+            for path_str in &paths {
+                let p = std::path::Path::new(path_str);
+                if !p.exists() {
+                    continue;
+                }
+
+                // Validate not a protected path
+                if let Ok(canonical) = p.canonicalize() {
+                    let canonical_str = canonical.to_string_lossy();
+                    for root in PROTECTED_ROOTS {
+                        if canonical_str.as_ref() == *root {
+                            return Err(format!(
+                                "Cannot delete protected system path: {}",
+                                root
+                            ));
+                        }
+                    }
+                }
+
+                let size = cleanup_patterns::dir_size(p);
+
+                if use_trash {
+                    trash::delete(path_str).map_err(|e| e.to_string())?;
+                } else if p.is_dir() {
+                    std::fs::remove_dir_all(path_str).map_err(|e| e.to_string())?;
+                } else {
+                    std::fs::remove_file(path_str).map_err(|e| e.to_string())?;
+                }
+
+                total_freed += size;
+            }
+
+            Ok(CleanupResult {
+                success: true,
+                freed_bytes: total_freed,
+                message: format!(
+                    "Deleted {} path(s), freed {} bytes",
+                    paths.len(),
+                    total_freed
+                ),
+            })
+        }
+        CleanupMethod::ShellCommand {
+            command,
+            run_in_terminal,
+            ..
+        } => {
+            let message = if *run_in_terminal {
+                execute_in_terminal(command)?
+            } else {
+                execute_background(command)?
+            };
+
+            Ok(CleanupResult {
+                success: true,
+                freed_bytes: 0,
+                message,
+            })
+        }
+        CleanupMethod::OpenInFinder => {
+            if let Some(first_path) = paths.first() {
+                platform::open_in_finder(first_path)?;
+            }
+
+            Ok(CleanupResult {
+                success: true,
+                freed_bytes: 0,
+                message: "Opened in Finder".to_string(),
+            })
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_cleanup_patterns() -> Vec<CleanupPatternInfo> {
+    cleanup_patterns::all_patterns()
+        .iter()
+        .map(CleanupPatternInfo::from)
+        .collect()
 }
