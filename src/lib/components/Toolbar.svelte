@@ -59,16 +59,12 @@
     disabled={!canGoChild}
     title="Re-select Child (Alt+Down)"
   >Child</button>
-  <span class="separator"></span>
-  <button
-    onclick={() => onOpenCleanupRecommendations?.()}
-    title="Cleanup Recommendations"
-  >Cleanup</button>
   <div class="spacer"></div>
   <MenuDropdown
     bind:optionsPanelOpen
     {onOpenCleanupSettings}
     {onOpenSettings}
+    {onOpenCleanupRecommendations}
   />
 </div>
 

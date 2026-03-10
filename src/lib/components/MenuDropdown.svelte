@@ -9,31 +9,56 @@
     optionsPanelOpen: boolean;
     onOpenCleanupSettings?: () => void;
     onOpenSettings?: () => void;
+    onOpenCleanupRecommendations?: () => void;
   }
 
-  let { optionsPanelOpen = $bindable(false), onOpenCleanupSettings, onOpenSettings }: Props = $props();
+  let {
+    optionsPanelOpen = $bindable(false),
+    onOpenCleanupSettings,
+    onOpenSettings,
+    onOpenCleanupRecommendations,
+  }: Props = $props();
 
   let menuOpen = $state(false);
   let menuEl: HTMLDivElement | undefined = $state();
   let hasTree = $derived(!!$tree);
 
-  function toggleMenu() {
+  function toggleMenu(e: MouseEvent) {
+    e.stopPropagation();
     menuOpen = !menuOpen;
+  }
+
+  function closeMenu() {
+    menuOpen = false;
   }
 
   function handleClickOutside(e: MouseEvent) {
     if (menuEl && !menuEl.contains(e.target as Node)) {
-      menuOpen = false;
+      closeMenu();
     }
   }
 
   $effect(() => {
     if (menuOpen) {
-      document.addEventListener("click", handleClickOutside, true);
-      return () => document.removeEventListener("click", handleClickOutside, true);
+      // Use setTimeout to avoid capturing the opening click itself
+      const timer = setTimeout(() => {
+        document.addEventListener("click", handleClickOutside);
+      }, 0);
+      return () => {
+        clearTimeout(timer);
+        document.removeEventListener("click", handleClickOutside);
+      };
     }
   });
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && menuOpen) {
+      closeMenu();
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <div class="menu-wrapper" bind:this={menuEl}>
   <button class="menu-btn" onclick={toggleMenu} class:active={menuOpen}>
@@ -84,11 +109,17 @@
         Treemap Options
       </button>
       <div class="menu-separator"></div>
-      <button class="menu-item" onclick={() => { onOpenCleanupSettings?.(); menuOpen = false; }}>
+      <div class="menu-section-label">Tools</div>
+      <button class="menu-item" onclick={() => { onOpenCleanupRecommendations?.(); closeMenu(); }}>
+        <span class="check"></span>
+        Cleanup Recommendations...
+      </button>
+      <button class="menu-item" onclick={() => { onOpenCleanupSettings?.(); closeMenu(); }}>
         <span class="check"></span>
         Cleanup Actions...
       </button>
-      <button class="menu-item" onclick={() => { onOpenSettings?.(); menuOpen = false; }}>
+      <div class="menu-separator"></div>
+      <button class="menu-item" onclick={() => { onOpenSettings?.(); closeMenu(); }}>
         <span class="check"></span>
         Settings...
         <span class="shortcut">{"\u2318"},</span>
@@ -127,7 +158,7 @@
     top: 100%;
     right: 0;
     margin-top: 4px;
-    min-width: 220px;
+    min-width: 240px;
     background: #2d2d2d;
     border: 1px solid #555;
     border-radius: 6px;

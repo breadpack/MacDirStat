@@ -263,6 +263,16 @@
       case "escape":
         // Escape: close context menu is handled by ContextMenu itself.
         // Close dialogs or panels in priority order.
+        if (cleanupRecommendationsOpen) {
+          cleanupRecommendationsOpen = false;
+          e.preventDefault();
+          return;
+        }
+        if (cleanupSettingsOpen) {
+          cleanupSettingsOpen = false;
+          e.preventDefault();
+          return;
+        }
         if (settingsOpen) {
           settingsOpen = false;
           e.preventDefault();
