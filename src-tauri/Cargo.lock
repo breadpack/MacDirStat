@@ -1707,6 +1707,7 @@ dependencies = [
  "tauri-plugin-store",
  "tokio",
  "trash",
+ "walkdir",
 ]
 
 [[package]]

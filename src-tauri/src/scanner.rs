@@ -253,6 +253,7 @@ pub fn scan_directory(
                         is_symlink,
                         is_hidden,
                         is_readonly,
+                        cleanup_pattern_id: None,
                     });
 
                     bytes += final_size;

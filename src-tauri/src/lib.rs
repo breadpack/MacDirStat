@@ -1,3 +1,4 @@
+mod cleanup_patterns;
 mod commands;
 mod config;
 mod models;

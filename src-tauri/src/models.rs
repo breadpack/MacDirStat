@@ -38,6 +38,9 @@ pub struct FileNode {
     pub is_hidden: bool,
     #[serde(default)]
     pub is_readonly: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup_pattern_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

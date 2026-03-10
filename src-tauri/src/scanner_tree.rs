@@ -87,6 +87,7 @@ pub fn assemble_tree(skeleton: &FileNode, file_map: &mut HashMap<String, Vec<Fil
             is_hidden,
             is_readonly: false,
             extension: None,
+            cleanup_pattern_id: None,
         });
     }
 
@@ -242,6 +243,7 @@ pub fn build_skeleton(
             is_symlink: false,
             is_hidden: nodes[index].is_hidden,
             is_readonly: false,
+            cleanup_pattern_id: None,
         }
     }
 
@@ -320,6 +322,7 @@ pub fn prune_tree(root: FileNode, max_children: usize) -> FileNode {
                 size: others_size, is_dir: false, children: Vec::new(),
                 file_count: others_fc, extension: None,
                 dir_count: 0, modified: None, is_symlink: false, is_hidden: false, is_readonly: false,
+                cleanup_pattern_id: None,
             });
         }
 
@@ -344,5 +347,6 @@ pub fn prune_tree(root: FileNode, max_children: usize) -> FileNode {
         is_symlink: false,
         is_hidden: false,
         is_readonly: false,
+        cleanup_pattern_id: None,
     })
 }
