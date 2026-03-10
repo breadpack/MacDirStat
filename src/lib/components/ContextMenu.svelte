@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { openInFinder, moveToTrash, permanentDelete, showGetInfo, openInTerminal, openFile } from "../api";
+  import { openInFinder, moveToTrash, permanentDelete, showGetInfo, openInTerminal, openFile, executeCleanupRecommendation } from "../api";
   import { confirm } from "@tauri-apps/plugin-dialog";
   import { tree, refreshSubtree, partialScanning } from "../stores/scanStore";
   import { isSpecialPath } from "../utils/specialNodes";
   import { cleanupActions, runCleanup } from "../stores/cleanupStore";
   import type { CleanupAction } from "../types";
+  import { formatSize } from "../utils/format";
 
   interface Props {
     x: number;
@@ -14,19 +15,14 @@
     isDir: boolean;
     size: number;
     childCount: number;
+    cleanupPatternId?: string | null;
     onClose: () => void;
   }
 
-  let { x, y, path, name, isDir, size, childCount, onClose }: Props = $props();
+  let { x, y, path, name, isDir, size, childCount, cleanupPatternId, onClose }: Props = $props();
 
   let isSpecial = $derived(isSpecialPath(path));
 
-  function formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
 
   async function handleOpen() {
     try {
@@ -183,6 +179,30 @@
     onClose();
   }
 
+  async function handleRecommendedCleanup() {
+    if (!cleanupPatternId) return;
+    const ok = await confirm(`Clean "${name}" (${formatSize(size)})?\n\nPattern: ${cleanupPatternId}`, {
+      title: "Cleanup Recommendation",
+      kind: "info",
+      okLabel: "Clean",
+      cancelLabel: "Cancel",
+    });
+    if (!ok) {
+      onClose();
+      return;
+    }
+    try {
+      const result = await executeCleanupRecommendation(cleanupPatternId, [path]);
+      if (result.success && isDir) {
+        await refreshSubtree(path);
+      }
+    } catch (e) {
+      console.error("Recommended cleanup failed:", e);
+      window.alert(`Cleanup failed: ${e}`);
+    }
+    onClose();
+  }
+
   function removeNode(node: { children: { path: string; children: any[] }[] }, targetPath: string) {
     const idx = node.children.findIndex((c) => c.path === targetPath);
     if (idx >= 0) {
@@ -220,6 +240,12 @@
       <div class="separator"></div>
       <button class="menu-item" onclick={handleRefresh} disabled={$partialScanning || isSpecial}>
         Refresh
+      </button>
+    {/if}
+    {#if cleanupPatternId && !isSpecial}
+      <div class="separator"></div>
+      <button class="menu-item cleanup-rec" onclick={handleRecommendedCleanup}>
+        &#x1F9F9; Clean: {cleanupPatternId}
       </button>
     {/if}
     {#if filteredCleanups.length > 0 && !isSpecial}
@@ -299,6 +325,15 @@
     height: 1px;
     background: #444;
     margin: 4px 0;
+  }
+
+  .cleanup-rec {
+    color: #6dba6d;
+  }
+
+  .cleanup-rec:hover {
+    background: #1e3a1e;
+    color: #8fdf8f;
   }
 
   .cleanup-name {

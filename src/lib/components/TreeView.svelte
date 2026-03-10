@@ -313,7 +313,7 @@
   }
 
   // Context menu state
-  let ctxMenu = $state<{ x: number; y: number; path: string; name: string; isDir: boolean; size: number; childCount: number } | null>(null);
+  let ctxMenu = $state<{ x: number; y: number; path: string; name: string; isDir: boolean; size: number; childCount: number; cleanupPatternId: string | null } | null>(null);
 
   function handleContextMenu(e: MouseEvent, row: FlatTreeRow) {
     e.preventDefault();
@@ -326,6 +326,7 @@
       isDir: row.node.is_dir,
       size: row.node.size,
       childCount: row.node.file_count + row.node.dir_count,
+      cleanupPatternId: row.node.cleanup_pattern_id,
     };
   }
 
@@ -511,6 +512,7 @@
     isDir={ctxMenu.isDir}
     size={ctxMenu.size}
     childCount={ctxMenu.childCount}
+    cleanupPatternId={ctxMenu.cleanupPatternId}
     onClose={() => ctxMenu = null}
   />
 {/if}
