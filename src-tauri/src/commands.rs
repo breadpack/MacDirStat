@@ -283,64 +283,69 @@ fn execute_background(command: &str) -> Result<String, String> {
 pub async fn scan_cleanup_recommendations(
     on_progress: Channel<CleanupScanProgress>,
 ) -> Result<Vec<CleanupRecommendation>, String> {
-    let patterns = cleanup_patterns::all_patterns();
-    let total = patterns.len();
-    let mut recommendations = Vec::new();
+    tokio::task::spawn_blocking(move || {
+        let patterns = cleanup_patterns::all_patterns();
+        let total = patterns.len();
+        let mut recommendations = Vec::new();
 
-    for (i, pattern) in patterns.iter().enumerate() {
-        let _ = on_progress.send(CleanupScanProgress {
-            current_pattern: pattern.name.to_string(),
-            checked: i + 1,
-            total,
-        });
+        for (i, pattern) in patterns.iter().enumerate() {
+            let _ = on_progress.send(CleanupScanProgress {
+                current_pattern: pattern.name.to_string(),
+                checked: i + 1,
+                total,
+            });
 
-        match &pattern.detection {
-            DetectionMethod::KnownPath { path, .. } => {
-                let expanded = cleanup_patterns::expand_home(path);
-                if expanded.exists() {
-                    let size = cleanup_patterns::dir_size(&expanded);
-                    recommendations.push(CleanupRecommendation {
-                        pattern_id: pattern.id.to_string(),
-                        pattern_name: pattern.name.to_string(),
-                        category: pattern.category.clone(),
-                        risk_level: pattern.risk_level.clone(),
-                        description: pattern.description.to_string(),
-                        paths: vec![expanded.to_string_lossy().to_string()],
-                        total_size: size,
-                        cleanup_method: pattern.cleanup.clone(),
-                    });
-                }
-            }
-            DetectionMethod::Command { check_cmd, .. } => {
-                let output = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(check_cmd)
-                    .output();
-
-                if let Ok(output) = output {
-                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if !stdout.is_empty() && stdout != "0" {
+            match &pattern.detection {
+                DetectionMethod::KnownPath { path, .. } => {
+                    let expanded = cleanup_patterns::expand_home(path);
+                    if expanded.exists() {
+                        let size = cleanup_patterns::dir_size(&expanded);
                         recommendations.push(CleanupRecommendation {
                             pattern_id: pattern.id.to_string(),
                             pattern_name: pattern.name.to_string(),
                             category: pattern.category.clone(),
                             risk_level: pattern.risk_level.clone(),
                             description: pattern.description.to_string(),
-                            paths: vec![],
-                            total_size: 0,
+                            paths: vec![expanded.to_string_lossy().to_string()],
+                            total_size: size,
                             cleanup_method: pattern.cleanup.clone(),
                         });
                     }
                 }
-            }
-            DetectionMethod::PathPattern { .. } => {
-                // PathPattern is handled during scan, skip here
+                DetectionMethod::Command { check_cmd, .. } => {
+                    let output = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(check_cmd)
+                        .output();
+
+                    if let Ok(output) = output {
+                        let stdout =
+                            String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if !stdout.is_empty() && stdout != "0" {
+                            recommendations.push(CleanupRecommendation {
+                                pattern_id: pattern.id.to_string(),
+                                pattern_name: pattern.name.to_string(),
+                                category: pattern.category.clone(),
+                                risk_level: pattern.risk_level.clone(),
+                                description: pattern.description.to_string(),
+                                paths: vec![],
+                                total_size: 0,
+                                cleanup_method: pattern.cleanup.clone(),
+                            });
+                        }
+                    }
+                }
+                DetectionMethod::PathPattern { .. } => {
+                    // PathPattern is handled during scan, skip here
+                }
             }
         }
-    }
 
-    recommendations.sort_by(|a, b| b.total_size.cmp(&a.total_size));
-    Ok(recommendations)
+        recommendations.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+        Ok(recommendations)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -358,6 +363,7 @@ pub async fn execute_cleanup_recommendation(
         CleanupMethod::Delete { use_trash } => {
             let use_trash = *use_trash;
             let mut total_freed: u64 = 0;
+            let mut deleted_count: usize = 0;
 
             for path_str in &paths {
                 let p = std::path::Path::new(path_str);
@@ -366,15 +372,16 @@ pub async fn execute_cleanup_recommendation(
                 }
 
                 // Validate not a protected path
-                if let Ok(canonical) = p.canonicalize() {
-                    let canonical_str = canonical.to_string_lossy();
-                    for root in PROTECTED_ROOTS {
-                        if canonical_str.as_ref() == *root {
-                            return Err(format!(
-                                "Cannot delete protected system path: {}",
-                                root
-                            ));
-                        }
+                let canonical = p.canonicalize().map_err(|e| {
+                    format!("Cannot resolve path {}: {}", path_str, e)
+                })?;
+                let canonical_str = canonical.to_string_lossy();
+                for root in PROTECTED_ROOTS {
+                    if canonical_str.as_ref() == *root {
+                        return Err(format!(
+                            "Cannot delete protected system path: {}",
+                            root
+                        ));
                     }
                 }
 
@@ -389,6 +396,7 @@ pub async fn execute_cleanup_recommendation(
                 }
 
                 total_freed += size;
+                deleted_count += 1;
             }
 
             Ok(CleanupResult {
@@ -396,7 +404,7 @@ pub async fn execute_cleanup_recommendation(
                 freed_bytes: total_freed,
                 message: format!(
                     "Deleted {} path(s), freed {} bytes",
-                    paths.len(),
+                    deleted_count,
                     total_freed
                 ),
             })

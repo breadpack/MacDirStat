@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Channel } from "@tauri-apps/api/core";
+  import { untrack } from "svelte";
   import type { CleanupRecommendation, CleanupScanProgress, CleanupCategory } from "../types";
   import { scanCleanupRecommendations, executeCleanupRecommendation } from "../api";
   import {
@@ -81,9 +82,9 @@
     recs.filter((r) => selected.has(r.pattern_id)).reduce((s, r) => s + r.total_size, 0),
   );
 
-  // Auto-scan on mount
+  // Auto-scan on mount (untrack to prevent re-runs when state changes)
   $effect(() => {
-    startScan();
+    untrack(() => startScan());
   });
 
   async function startScan() {
