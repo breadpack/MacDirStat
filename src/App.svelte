@@ -10,6 +10,7 @@
   import FullDiskAccessPrompt from "./lib/components/FullDiskAccessPrompt.svelte";
   import LogViewer from "./lib/components/LogViewer.svelte";
   import DropOverlay from "./lib/components/DropOverlay.svelte";
+  import CleanupRecommendations from "./lib/components/CleanupRecommendations.svelte";
   import ExtensionList from "./lib/components/ExtensionList.svelte";
   import PanelResizer from "./lib/components/PanelResizer.svelte";
   import { tree, scanning, scanLogs, scanError, startScan, refreshSubtree, scanWarnErrorCount } from "./lib/stores/scanStore";
@@ -392,6 +393,10 @@
 
 {#if settingsOpen}
   <SettingsDialog onClose={() => settingsOpen = false} />
+{/if}
+
+{#if cleanupRecommendationsOpen}
+  <CleanupRecommendations onClose={() => cleanupRecommendationsOpen = false} />
 {/if}
 
 <style>
