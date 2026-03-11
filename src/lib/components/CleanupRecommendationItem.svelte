@@ -5,11 +5,12 @@
   interface Props {
     recommendation: CleanupRecommendation;
     selected: boolean;
+    errorMessage: string | null;
     onToggle: () => void;
     onClean: () => void;
   }
 
-  let { recommendation, selected, onToggle, onClean }: Props = $props();
+  let { recommendation, selected, errorMessage, onToggle, onClean }: Props = $props();
 
   let expanded = $state(false);
   let isWarning = $derived(recommendation.risk_level === "Warning");
@@ -23,7 +24,7 @@
   );
 </script>
 
-<div class="item" title={recommendation.description}>
+<div class="item" class:item-failed={errorMessage} title={recommendation.description}>
   <div class="item-main">
     <label class="checkbox-area">
       <input
@@ -61,7 +62,11 @@
     <button class="clean-btn" onclick={onClean}>Clean</button>
   </div>
 
-  <div class="description">{recommendation.description}</div>
+  {#if errorMessage}
+    <div class="error-line">Failed: {errorMessage}</div>
+  {:else}
+    <div class="description">{recommendation.description}</div>
+  {/if}
 
   {#if expanded && recommendation.paths.length > 1}
     <ul class="paths-list">
@@ -167,10 +172,23 @@
     color: #fff;
   }
 
+  .item-failed {
+    background: rgba(244, 67, 54, 0.08);
+  }
+
   .description {
     font-size: 11px;
     color: #888;
     margin: 2px 0 0 30px;
+  }
+
+  .error-line {
+    font-size: 11px;
+    color: #f44336;
+    margin: 2px 0 0 30px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .paths-list {

@@ -328,6 +328,12 @@ pub async fn scan_cleanup_recommendations(
                     }
                 }
                 DetectionMethod::Command { check_cmd, .. } => {
+                    // Special handling: expand simulator runtimes into individual items
+                    if pattern.id == "xcode-simulator-runtimes" {
+                        recommendations.extend(scan_simulator_runtimes(pattern));
+                        continue;
+                    }
+
                     let shell = user_shell();
                     let output = std::process::Command::new(&shell)
                         .arg("-l")
@@ -369,14 +375,20 @@ pub async fn scan_cleanup_recommendations(
 pub async fn execute_cleanup_recommendation(
     pattern_id: String,
     paths: Vec<String>,
+    cleanup_method: Option<CleanupMethod>,
 ) -> Result<CleanupResult, String> {
     let patterns = cleanup_patterns::all_patterns();
-    let pattern = patterns
-        .iter()
-        .find(|p| p.id == pattern_id)
-        .ok_or_else(|| format!("Pattern not found: {}", pattern_id))?;
+    let pattern = patterns.iter().find(|p| p.id == pattern_id);
 
-    match &pattern.cleanup {
+    // For dynamically generated patterns (e.g., xcode-simulator-runtimes-*),
+    // use the cleanup_method passed from the frontend recommendation.
+    let cleanup = match (&pattern, &cleanup_method) {
+        (Some(p), _) => p.cleanup.clone(),
+        (None, Some(m)) => m.clone(),
+        (None, None) => return Err(format!("Pattern not found: {}", pattern_id)),
+    };
+
+    match &cleanup {
         CleanupMethod::Delete { use_trash } => {
             let use_trash = *use_trash;
             let mut total_freed: u64 = 0;
@@ -455,6 +467,88 @@ pub async fn execute_cleanup_recommendation(
             })
         }
     }
+}
+
+/// Parse `xcrun simctl runtime list -j` and return individual recommendations per runtime.
+fn scan_simulator_runtimes(pattern: &cleanup_patterns::CleanupPattern) -> Vec<CleanupRecommendation> {
+    let shell = user_shell();
+    let output = std::process::Command::new(&shell)
+        .arg("-l")
+        .arg("-c")
+        .arg("xcrun simctl runtime list -j 2>/dev/null")
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return vec![],
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = match serde_json::from_str(&stdout) {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+
+    let obj = match json.as_object() {
+        Some(o) => o,
+        None => return vec![],
+    };
+
+    let mut results = Vec::new();
+    for (_uuid, info) in obj {
+        let version = info.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+        let build = info.get("build").and_then(|v| v.as_str()).unwrap_or("?");
+        let size_bytes = info.get("sizeBytes").and_then(|v| v.as_u64()).unwrap_or(0);
+        let identifier = info.get("identifier").and_then(|v| v.as_str()).unwrap_or("");
+        let platform = info.get("platformIdentifier").and_then(|v| v.as_str()).unwrap_or("");
+        let deletable = info.get("deletable").and_then(|v| v.as_bool()).unwrap_or(false);
+        let path = info.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        let last_used = info.get("lastUsedAt").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+        if !deletable || identifier.is_empty() {
+            continue;
+        }
+
+        // Extract platform name (e.g., "iphonesimulator" -> "iOS")
+        let platform_name = if platform.contains("iphone") {
+            "iOS"
+        } else if platform.contains("appletv") {
+            "tvOS"
+        } else if platform.contains("watch") {
+            "watchOS"
+        } else if platform.contains("xros") {
+            "visionOS"
+        } else {
+            "Simulator"
+        };
+
+        let display_name = format!("{} {} ({})", platform_name, version, build);
+        let description = format!(
+            "{} simulator runtime. Last used: {}.",
+            display_name,
+            &last_used[..10.min(last_used.len())]
+        );
+
+        let delete_cmd = format!("xcrun simctl runtime delete {}", identifier);
+
+        results.push(CleanupRecommendation {
+            pattern_id: format!("xcode-simulator-runtimes-{}", identifier),
+            pattern_name: display_name,
+            category: pattern.category.clone(),
+            risk_level: pattern.risk_level.clone(),
+            description,
+            paths: if path.is_empty() { vec![] } else { vec![path.to_string()] },
+            total_size: size_bytes,
+            cleanup_method: CleanupMethod::ShellCommand {
+                command: delete_cmd,
+                run_in_terminal: false,
+                refresh_after: false,
+            },
+        });
+    }
+
+    results.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+    results
 }
 
 #[tauri::command]

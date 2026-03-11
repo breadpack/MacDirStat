@@ -11,6 +11,9 @@
     removeRecommendation,
     resetCleanupRecommendations,
   } from "../stores/cleanupRecommendationStore";
+  import { tree } from "../stores/scanStore";
+  import { refreshSubtree } from "../stores/scanStore";
+  import { removeNode, findNode } from "../utils/treeUtils";
   import { formatSize } from "../utils/format";
   import CleanupCategoryGroup from "./CleanupCategoryGroup.svelte";
   import CleanupConfirmDialog from "./CleanupConfirmDialog.svelte";
@@ -39,6 +42,11 @@
   let selected: Set<string> = $state(new Set());
   let error = $state("");
   let executing = $state(false);
+  let executingCurrent = $state("");
+  let executingDone = $state(0);
+  let executingTotal = $state(0);
+  let cancelRequested = $state(false);
+  let failedItems: Map<string, string> = $state(new Map()); // pattern_id -> error message
 
   // Confirmation dialog state
   let confirmDialog: {
@@ -92,6 +100,7 @@
     resetCleanupRecommendations();
     cleanupScanning.set(true);
     error = "";
+    failedItems = new Map();
 
     try {
       const channel = new Channel<CleanupScanProgress>();
@@ -146,12 +155,77 @@
     }
   }
 
-  async function doClean(rec: CleanupRecommendation) {
+  async function doClean(rec: CleanupRecommendation): Promise<boolean> {
     try {
-      await executeCleanupRecommendation(rec.pattern_id, rec.paths);
+      await executeCleanupRecommendation(rec.pattern_id, rec.paths, rec.cleanup_method);
       removeRecommendation(rec.pattern_id);
+      // Clear failure if previously failed
+      failedItems.delete(rec.pattern_id);
+      failedItems = new Map(failedItems);
+
+      // Update tree to reflect freed space
+      updateTreeAfterCleanup(rec);
+
+      return true;
     } catch (e) {
-      error = String(e);
+      const msg = String(e);
+      failedItems.set(rec.pattern_id, msg);
+      failedItems = new Map(failedItems);
+      return false;
+    }
+  }
+
+  function updateTreeAfterCleanup(rec: CleanupRecommendation) {
+    if (rec.paths.length === 0) return;
+
+    const method = rec.cleanup_method;
+
+    if (method.type === "Delete") {
+      // Instantly remove nodes from tree
+      tree.update((t) => {
+        if (!t) return t;
+        let updated = t;
+        for (const p of rec.paths) {
+          updated = removeNode(updated, p);
+        }
+        return updated;
+      });
+    } else if (method.type === "ShellCommand") {
+      // Re-scan affected paths' parents for accurate sizes
+      for (const p of rec.paths) {
+        const parentPath = p.substring(0, p.lastIndexOf("/")) || "/";
+        const currentTree = getTreeSnapshot();
+        if (currentTree && findNode(currentTree, parentPath)) {
+          refreshSubtree(parentPath);
+        }
+      }
+    }
+  }
+
+  function getTreeSnapshot(): import("../types").FileNode | null {
+    let snapshot: import("../types").FileNode | null = null;
+    tree.subscribe((t) => (snapshot = t))();
+    return snapshot;
+  }
+
+  async function runBatch(items: CleanupRecommendation[]) {
+    executing = true;
+    cancelRequested = false;
+    executingDone = 0;
+    executingTotal = items.length;
+    error = "";
+
+    try {
+      for (const rec of items) {
+        if (cancelRequested) break;
+        executingCurrent = rec.pattern_name;
+        await doClean(rec);
+        executingDone++;
+      }
+    } finally {
+      executing = false;
+      executingCurrent = "";
+      cancelRequested = false;
     }
   }
 
@@ -160,22 +234,19 @@
     const cautionItems = items.filter((i) => i.risk_level === "Caution");
 
     if (cautionItems.length > 0) {
-      const totalSize = [...safeItems, ...cautionItems].reduce((s, i) => s + i.total_size, 0);
+      const batch = [...safeItems, ...cautionItems];
+      const totalSize = batch.reduce((s, i) => s + i.total_size, 0);
       confirmDialog = {
         title: "Clean all items in category?",
-        message: `This will clean ${formatSize(totalSize)} across ${safeItems.length + cautionItems.length} items (including ${cautionItems.length} Caution item${cautionItems.length !== 1 ? "s" : ""}).`,
+        message: `This will clean ${formatSize(totalSize)} across ${batch.length} items (including ${cautionItems.length} Caution item${cautionItems.length !== 1 ? "s" : ""}).`,
         riskLevel: "Caution",
-        onConfirm: async () => {
+        onConfirm: () => {
           confirmDialog = null;
-          for (const item of [...safeItems, ...cautionItems]) {
-            await doClean(item);
-          }
+          runBatch(batch);
         },
       };
     } else {
-      for (const item of safeItems) {
-        await doClean(item);
-      }
+      await runBatch(safeItems);
     }
   }
 
@@ -190,44 +261,30 @@
         title: "Clean selected items?",
         message: `This will clean ${formatSize(selectedSize)} across ${selectedRecs.length} items. Some items have Caution risk level.`,
         riskLevel: "Caution",
-        onConfirm: async () => {
+        onConfirm: () => {
           confirmDialog = null;
-          executing = true;
-          try {
-            for (const rec of selectedRecs) {
-              await doClean(rec);
-            }
-          } finally {
-            executing = false;
-          }
+          runBatch(selectedRecs);
         },
       };
     } else {
-      executing = true;
-      try {
-        for (const rec of selectedRecs) {
-          await doClean(rec);
-        }
-      } finally {
-        executing = false;
-      }
+      await runBatch(selectedRecs);
     }
   }
 </script>
 
-<svelte:window onkeydown={(e) => { if (e.key === "Escape") onClose(); }} />
+<svelte:window onkeydown={(e) => { if (e.key === "Escape" && !executing) onClose(); }} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="modal-overlay" onclick={onClose}>
-  <div class="modal" onclick={(e) => e.stopPropagation()}>
+<div class="modal-overlay" onclick={() => { if (!executing) onClose(); }}>
+  <div class="modal" class:disabled-overlay={executing} onclick={(e) => e.stopPropagation()}>
     <div class="modal-header">
       <h2>Cleanup Recommendations</h2>
       <div class="header-actions">
-        <button class="scan-btn" onclick={startScan} disabled={scanning}>
+        <button class="scan-btn" onclick={startScan} disabled={scanning || executing}>
           {scanning ? "Scanning..." : "Scan"}
         </button>
-        <button class="close-btn" onclick={onClose}>&times;</button>
+        <button class="close-btn" onclick={onClose} disabled={executing}>&times;</button>
       </div>
     </div>
 
@@ -245,6 +302,29 @@
       </div>
     {/if}
 
+    {#if executing}
+      <div class="executing-section">
+        <div class="progress-bar-track">
+          <div
+            class="progress-bar-fill executing-fill"
+            style="width: {executingTotal > 0 ? (executingDone / executingTotal) * 100 : 0}%"
+          ></div>
+        </div>
+        <div class="executing-info">
+          <span class="executing-text">
+            Cleaning: {executingCurrent} ({executingDone}/{executingTotal})
+          </span>
+          <button
+            class="cancel-btn"
+            onclick={() => { cancelRequested = true; }}
+            disabled={cancelRequested}
+          >
+            {cancelRequested ? "Cancelling..." : "Cancel"}
+          </button>
+        </div>
+      </div>
+    {/if}
+
     {#if error}
       <div class="error-msg">{error}</div>
     {/if}
@@ -255,7 +335,7 @@
       </div>
     {/if}
 
-    <div class="content">
+    <div class="content" class:content-disabled={executing}>
       {#if !scanning && recs.length === 0 && !error}
         <div class="empty-state">
           {progress === null && !error ? "Click Scan to find cleanup recommendations." : "No cleanup recommendations found."}
@@ -267,6 +347,7 @@
           category={group.displayName}
           items={group.items}
           selectedIds={selected}
+          {failedItems}
           onToggleItem={toggleItem}
           onCleanItem={cleanItem}
           onCleanAll={() => cleanAllInCategory(group.items)}
@@ -463,6 +544,59 @@
   }
 
   .btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .disabled-overlay {
+    pointer-events: auto;
+  }
+
+  .content-disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .executing-section {
+    padding: 8px 16px;
+    border-bottom: 1px solid #444;
+    background: #333;
+  }
+
+  .executing-fill {
+    background: #ff9800;
+  }
+
+  .executing-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 4px;
+  }
+
+  .executing-text {
+    font-size: 12px;
+    color: #ff9800;
+    font-weight: 500;
+  }
+
+  .cancel-btn {
+    background: #555;
+    border: 1px solid #666;
+    border-radius: 4px;
+    color: #eee;
+    font-size: 11px;
+    padding: 2px 10px;
+    cursor: pointer;
+  }
+
+  .cancel-btn:hover:not(:disabled) {
+    background: #e55;
+    border-color: #e55;
+    color: #fff;
+  }
+
+  .cancel-btn:disabled {
     opacity: 0.5;
     cursor: default;
   }

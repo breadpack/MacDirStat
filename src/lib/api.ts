@@ -1,5 +1,5 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import type { CleanupAction, CleanupPatternInfo, CleanupRecommendation, CleanupResult, CleanupScanProgress, FileNode, ScanLogEntry, ScanProgress, VolumeInfo } from "./types";
+import type { CleanupAction, CleanupMethod, CleanupPatternInfo, CleanupRecommendation, CleanupResult, CleanupScanProgress, FileNode, ScanLogEntry, ScanProgress, VolumeInfo } from "./types";
 
 export interface ScanOptions {
   excludePaths?: string[];
@@ -111,8 +111,9 @@ export async function scanCleanupRecommendations(
 export async function executeCleanupRecommendation(
   patternId: string,
   paths: string[],
+  cleanupMethod?: CleanupMethod,
 ): Promise<CleanupResult> {
-  return invoke("execute_cleanup_recommendation", { patternId, paths });
+  return invoke("execute_cleanup_recommendation", { patternId, paths, cleanupMethod });
 }
 
 export async function getCleanupPatterns(): Promise<CleanupPatternInfo[]> {

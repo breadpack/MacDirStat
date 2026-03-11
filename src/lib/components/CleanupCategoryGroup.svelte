@@ -7,12 +7,13 @@
     category: string;
     items: CleanupRecommendation[];
     selectedIds: Set<string>;
+    failedItems: Map<string, string>;
     onToggleItem: (patternId: string) => void;
     onCleanItem: (recommendation: CleanupRecommendation) => void;
     onCleanAll: () => void;
   }
 
-  let { category, items, selectedIds, onToggleItem, onCleanItem, onCleanAll }: Props = $props();
+  let { category, items, selectedIds, failedItems, onToggleItem, onCleanItem, onCleanAll }: Props = $props();
 
   let expanded = $state(true);
 
@@ -46,6 +47,7 @@
         <CleanupRecommendationItem
           recommendation={item}
           selected={selectedIds.has(item.pattern_id)}
+          errorMessage={failedItems.get(item.pattern_id) ?? null}
           onToggle={() => onToggleItem(item.pattern_id)}
           onClean={() => onCleanItem(item)}
         />
