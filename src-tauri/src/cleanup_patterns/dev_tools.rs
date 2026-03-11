@@ -55,6 +55,22 @@ pub fn patterns() -> Vec<CleanupPattern> {
             },
         },
         CleanupPattern {
+            id: "xcode-simulator-runtimes",
+            category: CleanupCategory::DevTools,
+            name: "Xcode Simulator Runtime Images",
+            description: "Downloaded iOS/watchOS/tvOS simulator runtime disk images (5-8GB each). Stored in /Library/Developer/CoreSimulator/Images/ and /System/Library/AssetsV2/. Delete old versions you no longer need.",
+            risk_level: RiskLevel::Caution,
+            detection: DetectionMethod::Command {
+                check_cmd: "xcrun simctl runtime list 2>/dev/null | tail -1 | grep -oE '[0-9]+\\.[0-9]+G' || echo 0",
+                parse_hint: "total_size",
+            },
+            cleanup: CleanupMethod::ShellCommand {
+                command: "echo 'Installed simulator runtimes:' && echo '' && xcrun simctl runtime list && echo '' && echo 'To delete a runtime, run:' && echo '  xcrun simctl runtime delete <identifier>' && echo '' && echo 'Example:' && echo '  xcrun simctl runtime delete iOS-17-0'".to_string(),
+                run_in_terminal: true,
+                refresh_after: false,
+            },
+        },
+        CleanupPattern {
             id: "xcode-spm-cache",
             category: CleanupCategory::DevTools,
             name: "Swift Package Manager Cache",

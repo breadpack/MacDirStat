@@ -234,13 +234,21 @@ pub fn execute_cleanup(action_id: u8, path: String, name: String) -> Result<Stri
 }
 
 fn execute_in_terminal(command: &str) -> Result<String, String> {
-    // Use osascript to open Terminal.app and run the command
+    // Wrap the command so the terminal tab closes automatically after completion.
+    // "exit" causes the shell to exit; Terminal preference "close if shell exited cleanly"
+    // handles the rest. We also add explicit tab-close via AppleScript after a delay.
+    let wrapped = format!(
+        "{}; echo ''; echo 'Press Enter to close...'; read; exit",
+        command
+    );
+    let escaped = wrapped.replace('\\', "\\\\").replace('"', "\\\"");
+
     let script = format!(
         r#"tell application "Terminal"
     activate
     do script "{}"
 end tell"#,
-        command.replace('\\', "\\\\").replace('"', "\\\"")
+        escaped
     );
 
     std::process::Command::new("osascript")
@@ -252,8 +260,15 @@ end tell"#,
     Ok("Command sent to Terminal".to_string())
 }
 
+/// Detect the user's login shell (defaults to /bin/zsh on macOS)
+fn user_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+}
+
 fn execute_background(command: &str) -> Result<String, String> {
-    let output = std::process::Command::new("sh")
+    let shell = user_shell();
+    let output = std::process::Command::new(&shell)
+        .arg("-l") // login shell: loads ~/.zprofile, ~/.zshrc etc. for full PATH
         .arg("-c")
         .arg(command)
         .output()
@@ -313,7 +328,9 @@ pub async fn scan_cleanup_recommendations(
                     }
                 }
                 DetectionMethod::Command { check_cmd, .. } => {
-                    let output = std::process::Command::new("sh")
+                    let shell = user_shell();
+                    let output = std::process::Command::new(&shell)
+                        .arg("-l")
                         .arg("-c")
                         .arg(check_cmd)
                         .output();

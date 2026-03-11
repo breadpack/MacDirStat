@@ -69,7 +69,7 @@ pub fn patterns() -> Vec<CleanupPattern> {
                 expandable: true,
             },
             cleanup: CleanupMethod::ShellCommand {
-                command: "rm -rf ~/.Trash/*".to_string(),
+                command: "osascript -e 'tell application \"Finder\" to empty trash'".to_string(),
                 run_in_terminal: false,
                 refresh_after: false,
             },
