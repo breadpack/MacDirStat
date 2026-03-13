@@ -6,7 +6,6 @@ export interface GeneralSettings {
   followSymlinks: boolean;
   excludePaths: string[];
   excludeNames: string[];
-  excludePatterns: string[];
   maxChildrenPerDir: number;
 }
 
@@ -67,7 +66,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     followSymlinks: false,
     excludePaths: [...DEFAULT_EXCLUDE_PATHS],
     excludeNames: [...DEFAULT_EXCLUDE_NAMES],
-    excludePatterns: [],
     maxChildrenPerDir: 200,
   },
   treeView: {

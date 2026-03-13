@@ -11,6 +11,8 @@ export function getParentPath(path: string): string | null {
 
 export function recordChildVisit(parentPath: string, childPath: string): void {
   childHistory.update((map) => {
+    // Early return if the value hasn't changed, avoiding unnecessary Map copy
+    if (map.get(parentPath) === childPath) return map;
     const next = new Map(map);
     next.set(parentPath, childPath);
     return next;

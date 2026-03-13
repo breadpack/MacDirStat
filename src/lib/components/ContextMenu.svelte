@@ -1,9 +1,10 @@
 <script lang="ts">
   import { openInFinder, moveToTrash, permanentDelete, showGetInfo, openInTerminal, openFile } from "../api";
-  import { confirm } from "@tauri-apps/plugin-dialog";
+  import { confirm, message } from "@tauri-apps/plugin-dialog";
   import { tree, refreshSubtree, partialScanning } from "../stores/scanStore";
   import { isSpecialPath } from "../utils/specialNodes";
   import { cleanupActions, runCleanup } from "../stores/cleanupStore";
+  import { removeNode } from "../utils/treeUtils";
   import type { CleanupAction } from "../types";
 
   interface Props {
@@ -72,7 +73,7 @@
   }
 
   async function handleMoveToTrash() {
-    const ok = window.confirm(`Move "${name}" to Trash?`);
+    const ok = await confirm(`Move "${name}" to Trash?`);
     if (!ok) {
       onClose();
       return;
@@ -81,26 +82,25 @@
       await moveToTrash(path);
       tree.update((t) => {
         if (!t) return t;
-        removeNode(t, path);
-        return { ...t };
+        return removeNode(t, path) ?? t;
       });
     } catch (e) {
       console.error("Failed to move to trash:", e);
-      window.alert(`Failed to move to trash: ${e}`);
+      await message(`Failed to move to trash: ${e}`, { kind: "error" });
     }
     onClose();
   }
 
   async function handlePermanentDelete() {
     // First confirmation
-    let message: string;
+    let confirmMsg: string;
     if (isDir) {
-      message = `Permanently delete "${name}"?\n\nThis folder contains ${childCount.toLocaleString()} items (${formatSize(size)}).\n\nThis action CANNOT be undone.`;
+      confirmMsg = `Permanently delete "${name}"?\n\nThis folder contains ${childCount.toLocaleString()} items (${formatSize(size)}).\n\nThis action CANNOT be undone.`;
     } else {
-      message = `Permanently delete "${name}" (${formatSize(size)})?\n\nThis action CANNOT be undone.`;
+      confirmMsg = `Permanently delete "${name}" (${formatSize(size)})?\n\nThis action CANNOT be undone.`;
     }
 
-    const firstConfirm = await confirm(message, {
+    const firstConfirm = await confirm(confirmMsg, {
       title: "Delete Permanently",
       kind: "warning",
       okLabel: "Delete",
@@ -130,12 +130,11 @@
       await permanentDelete(path);
       tree.update((t) => {
         if (!t) return t;
-        removeNode(t, path);
-        return { ...t };
+        return removeNode(t, path) ?? t;
       });
     } catch (e) {
       console.error("Failed to permanently delete:", e);
-      window.alert(`Failed to delete: ${e}`);
+      await message(`Failed to delete: ${e}`, { kind: "error" });
     }
     onClose();
   }
@@ -178,22 +177,11 @@
       }
     } catch (e) {
       console.error(`Cleanup "${action.name}" failed:`, e);
-      window.alert(`Cleanup failed: ${e}`);
+      await message(`Cleanup failed: ${e}`, { kind: "error" });
     }
     onClose();
   }
 
-  function removeNode(node: { children: { path: string; children: any[] }[] }, targetPath: string) {
-    const idx = node.children.findIndex((c) => c.path === targetPath);
-    if (idx >= 0) {
-      node.children.splice(idx, 1);
-      return true;
-    }
-    for (const child of node.children) {
-      if (child.children && removeNode(child, targetPath)) return true;
-    }
-    return false;
-  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

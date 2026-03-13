@@ -18,9 +18,6 @@
       }
       return "Scanning directory structure...";
     }
-    if (p.current_dir_name) {
-      return `Scanning ${p.current_dir_name} (${p.completed_dirs}/${p.total_dirs})`;
-    }
     if (p.completed_dirs >= p.total_dirs && p.total_dirs > 0) {
       return `Finalizing... (${p.completed_dirs}/${p.total_dirs})`;
     }

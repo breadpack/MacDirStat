@@ -12,11 +12,7 @@ const INITIAL_PROGRESS: ScanProgress = {
   current_path: "",
   total_dirs: 0,
   completed_dirs: 0,
-  current_dir_name: "",
-  current_dir_files: 0,
-  current_dir_bytes: 0,
   total_bytes: 0,
-  scanning_dirs: [],
   dir_sizes: [],
 };
 
@@ -63,10 +59,6 @@ export async function startScan(path: string) {
   const progressChannel = new Channel<ScanProgress>();
   progressChannel.onmessage = (msg) => {
     progress.set(msg);
-
-    if (msg.scanning_dirs) {
-      scanningDirs.set(new Set(msg.scanning_dirs));
-    }
 
     // 디렉토리별 실시간 크기 머지 (부분 업데이트 지원)
     if (msg.dir_sizes && msg.dir_sizes.length > 0) {
