@@ -197,9 +197,10 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="overlay" onclick={onClose} oncontextmenu={(e) => { e.preventDefault(); onClose(); }}>
-  <div class="context-menu" style="left: {x}px; top: {y}px" onclick={(e) => e.stopPropagation()}>
+<div class="overlay" onclick={onClose} oncontextmenu={(e) => { e.preventDefault(); onClose(); }} onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}>
+  <!-- svelte-ignore a11y_interactive_supports_focus -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="context-menu" role="menu" style="left: {x}px; top: {y}px" onclick={(e) => e.stopPropagation()}>
     <button class="menu-item" onclick={handleOpen} disabled={isSpecial}>
       Open
     </button>
@@ -255,12 +256,12 @@
 
   .context-menu {
     position: fixed;
-    background: #2d2d2d;
-    border: 1px solid #555;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 6px;
     padding: 4px 0;
     min-width: 180px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 12px var(--shadow-color);
     z-index: 201;
   }
 
@@ -270,7 +271,7 @@
     padding: 6px 16px;
     background: none;
     border: none;
-    color: #ccc;
+    color: var(--text-primary);
     font-size: 13px;
     text-align: left;
     cursor: pointer;
@@ -282,22 +283,22 @@
   }
 
   .menu-item:hover:not(:disabled) {
-    background: #3a3a3a;
-    color: #fff;
+    background: var(--hover-bg);
+    color: var(--text-heading);
   }
 
   .menu-item.danger {
-    color: #e55;
+    color: var(--danger-color);
   }
 
   .menu-item.danger:hover {
-    background: #4a2020;
-    color: #f88;
+    background: var(--danger-hover-bg);
+    color: var(--danger-hover-color);
   }
 
   .separator {
     height: 1px;
-    background: #444;
+    background: var(--border-color-strong);
     margin: 4px 0;
   }
 
@@ -307,7 +308,7 @@
 
   .cleanup-shortcut {
     font-size: 11px;
-    color: #777;
+    color: var(--text-secondary);
     margin-left: 16px;
   }
 

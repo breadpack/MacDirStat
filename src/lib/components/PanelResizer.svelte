@@ -47,14 +47,14 @@
   .resizer {
     width: 4px;
     cursor: col-resize;
-    background: #333;
+    background: var(--border-color);
     flex-shrink: 0;
     transition: background 0.15s;
   }
 
   .resizer:hover,
   .resizer.active {
-    background: #4A90D9;
+    background: var(--accent-color);
   }
 
   .drag-overlay {

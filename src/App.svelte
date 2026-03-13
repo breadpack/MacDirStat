@@ -45,19 +45,12 @@
 
   let treeViewRef: TreeView | undefined = $state();
 
-  // Sync layoutStore.showExtensions <-> extensionStore.showExtensionPanel
+  // Sync layoutStore.showExtensions -> extensionStore.showExtensionPanel (one-way).
+  // layoutStore is the single source of truth for panel visibility.
+  // showExtensionPanel in extensionStore is kept in sync for consumers that read it.
   $effect(() => {
     const unsub = layoutStore.subscribe((l) => {
       showExtensionPanel.set(l.showExtensions);
-    });
-    return unsub;
-  });
-  $effect(() => {
-    const unsub = showExtensionPanel.subscribe((v) => {
-      layoutStore.update((l) => {
-        if (l.showExtensions !== v) return { ...l, showExtensions: v };
-        return l;
-      });
     });
     return unsub;
   });
@@ -387,22 +380,52 @@
     --bg-primary: #1a1a1a;
     --bg-secondary: #1e1e1e;
     --bg-tertiary: #2d2d2d;
+    --bg-header: #252525;
+    --bg-input: #333;
     --text-primary: #ccc;
     --text-secondary: #888;
+    --text-heading: #eee;
+    --text-link: #4A90D9;
     --border-color: #333;
     --border-color-strong: #555;
     --accent-color: #4A90D9;
+    --hover-bg: #3a3a3a;
+    --selection-bg: #264f78;
+    --overlay-bg: rgba(0, 0, 0, 0.6);
+    --tooltip-bg: rgba(30, 30, 30, 0.95);
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --bar-bg: #222;
+    --danger-color: #e55;
+    --danger-hover-bg: #4a2020;
+    --danger-hover-color: #f88;
+    --success-color: #2a7;
+    --success-hover: #3b8;
   }
 
   :global([data-theme="light"]) {
     --bg-primary: #f5f5f5;
     --bg-secondary: #ffffff;
     --bg-tertiary: #e8e8e8;
+    --bg-header: #eaeaea;
+    --bg-input: #fff;
     --text-primary: #333;
     --text-secondary: #666;
+    --text-heading: #222;
+    --text-link: #2870BD;
     --border-color: #ddd;
     --border-color-strong: #bbb;
     --accent-color: #2870BD;
+    --hover-bg: #d8d8d8;
+    --selection-bg: #b3d4fc;
+    --overlay-bg: rgba(0, 0, 0, 0.3);
+    --tooltip-bg: rgba(255, 255, 255, 0.95);
+    --shadow-color: rgba(0, 0, 0, 0.15);
+    --bar-bg: #ddd;
+    --danger-color: #c33;
+    --danger-hover-bg: #fdd;
+    --danger-hover-color: #a00;
+    --success-color: #2a7;
+    --success-hover: #3b8;
   }
 
   :global(body) {
@@ -475,7 +498,7 @@
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 14px;
   }
 
@@ -501,7 +524,7 @@
   .error-dismiss {
     background: rgba(200, 50, 50, 0.2);
     border: 1px solid rgba(200, 50, 50, 0.4);
-    color: #ccc;
+    color: var(--text-primary);
     border-radius: 4px;
     padding: 4px 16px;
     cursor: pointer;
@@ -515,13 +538,13 @@
   .log-panel {
     height: 200px;
     flex-shrink: 0;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--border-color);
   }
 
   .log-toggle {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 12px;
     cursor: pointer;
     padding: 2px 8px;
@@ -531,7 +554,7 @@
   }
 
   .log-toggle:hover {
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .log-toggle.has-errors {

@@ -491,7 +491,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #1a1a1a;
+    background: var(--bg-primary);
   }
 
   .tree-view {
@@ -502,7 +502,7 @@
   }
 
   .tree-view:focus-visible {
-    outline: 1px solid #4A90D9;
+    outline: 1px solid var(--accent-color);
     outline-offset: -1px;
   }
 

@@ -177,9 +177,9 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #1a1a1a;
+    background: var(--bg-primary);
     font-size: 11px;
-    color: #ccc;
+    color: var(--text-primary);
     min-width: 0;
   }
 
@@ -187,8 +187,8 @@
     display: flex;
     align-items: center;
     height: 24px;
-    background: #252525;
-    border-bottom: 1px solid #333;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
     padding: 0 2px;
   }
@@ -196,7 +196,7 @@
   .ext-header button {
     background: none;
     border: none;
-    color: #aaa;
+    color: var(--text-secondary);
     font-size: 10px;
     font-weight: 600;
     cursor: pointer;
@@ -208,7 +208,7 @@
   }
 
   .ext-header button:hover {
-    color: #fff;
+    color: var(--text-heading);
   }
 
   .ext-list {
@@ -236,18 +236,18 @@
     cursor: pointer;
     border: none;
     background: none;
-    color: #ccc;
+    color: var(--text-primary);
     font-size: 11px;
     width: 100%;
     text-align: left;
   }
 
   .ext-row:hover {
-    background: #2a2a2a;
+    background: var(--bg-secondary);
   }
 
   .ext-row.highlighted {
-    background: #333d4a;
+    background: var(--selection-bg);
   }
 
   .col-ext {
@@ -294,7 +294,7 @@
   .pct-bar-bg {
     flex: 1;
     height: 8px;
-    background: #2a2a2a;
+    background: var(--bar-bg);
     border-radius: 2px;
     overflow: hidden;
   }
@@ -302,7 +302,7 @@
   .pct-bar-fill {
     display: block;
     height: 100%;
-    background: #4A90D9;
+    background: var(--accent-color);
     border-radius: 2px;
   }
 
@@ -310,7 +310,7 @@
     width: 24px;
     text-align: right;
     font-size: 10px;
-    color: #999;
+    color: var(--text-secondary);
   }
 
   .col-files {
@@ -327,10 +327,10 @@
     display: flex;
     align-items: center;
     padding: 0 4px;
-    background: #252525;
-    border-top: 1px solid #333;
+    background: var(--bg-header);
+    border-top: 1px solid var(--border-color);
     font-size: 10px;
-    color: #888;
+    color: var(--text-secondary);
     flex-shrink: 0;
   }
 </style>

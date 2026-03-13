@@ -91,7 +91,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     colorPalette: "default",
   },
   appearance: {
-    theme: "dark",
+    theme: "system",
     treePanelWidth: 35,
   },
 };

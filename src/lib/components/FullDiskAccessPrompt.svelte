@@ -30,10 +30,10 @@
   }
 </script>
 
-<div class="overlay">
+<div class="overlay" role="dialog" aria-modal="true" aria-labelledby="fda-title">
   <div class="dialog">
     <div class="icon">&#x1F512;</div>
-    <h2>Full Disk Access Required</h2>
+    <h2 id="fda-title">Full Disk Access Required</h2>
     <p class="description">
       MacDirStat needs <strong>Full Disk Access</strong> permission to scan all directories on your disk.
       Without this permission, some protected folders will be skipped.
@@ -73,7 +73,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -81,8 +81,8 @@
   }
 
   .dialog {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 12px;
     padding: 32px 40px;
     max-width: 480px;
@@ -99,11 +99,11 @@
     margin: 0 0 12px;
     font-size: 20px;
     font-weight: 600;
-    color: #eee;
+    color: var(--text-heading);
   }
 
   .description {
-    color: #aaa;
+    color: var(--text-secondary);
     font-size: 14px;
     line-height: 1.5;
     margin: 0 0 24px;
@@ -120,14 +120,14 @@
     gap: 12px;
     padding: 8px 0;
     font-size: 14px;
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .step-number {
     width: 24px;
     height: 24px;
     border-radius: 50%;
-    background: #4A90D9;
+    background: var(--accent-color);
     color: #fff;
     display: flex;
     align-items: center;
@@ -153,22 +153,22 @@
   }
 
   .primary {
-    background: #4A90D9;
+    background: var(--accent-color);
     color: #fff;
   }
 
   .primary:hover {
-    background: #5BA0E9;
+    background: color-mix(in srgb, var(--accent-color), #fff 15%);
   }
 
   .secondary {
-    background: #3a3a3a;
-    color: #ccc;
-    border: 1px solid #555;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color-strong);
   }
 
   .secondary:hover:not(:disabled) {
-    background: #444;
+    background: var(--hover-bg);
   }
 
   .secondary:disabled {
@@ -178,7 +178,7 @@
 
   .skip {
     background: none;
-    color: #777;
+    color: var(--text-secondary);
     font-size: 12px;
     text-decoration: underline;
     padding: 4px;
@@ -186,6 +186,6 @@
   }
 
   .skip:hover {
-    color: #999;
+    color: var(--text-primary);
   }
 </style>

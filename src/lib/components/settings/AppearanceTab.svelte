@@ -32,7 +32,7 @@
       {:else if $settings.appearance.theme === "light"}
         Light mode
       {:else}
-        Dark mode (default)
+        Dark mode
       {/if}
     </span>
   </div>
@@ -69,22 +69,22 @@
   .group-label {
     font-size: 13px;
     font-weight: 600;
-    color: #ddd;
+    color: var(--text-heading);
   }
 
   select {
     width: 160px;
     padding: 4px 8px;
-    background: #2a2a2a;
-    border: 1px solid #555;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-primary);
     font-size: 13px;
   }
 
   .hint {
     font-size: 11px;
-    color: #888;
+    color: var(--text-secondary);
   }
 
   .slider-row {
@@ -96,12 +96,12 @@
   .slider-row input[type="range"] {
     flex: 1;
     max-width: 200px;
-    accent-color: #4A90D9;
+    accent-color: var(--accent-color);
   }
 
   .slider-value {
     font-size: 13px;
-    color: #ccc;
+    color: var(--text-primary);
     min-width: 40px;
   }
 </style>

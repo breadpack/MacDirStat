@@ -137,10 +137,10 @@
     display: flex;
     align-items: center;
     height: 28px;
-    background: #252525;
-    border-bottom: 1px solid #333;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
     font-size: 12px;
-    color: #aaa;
+    color: var(--text-secondary);
     user-select: none;
     flex-shrink: 0;
   }
@@ -160,12 +160,12 @@
   }
 
   .header-cell.sortable:hover {
-    color: #ddd;
-    background: #2a2a2a;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
   }
 
   .header-cell.active {
-    color: #ddd;
+    color: var(--text-primary);
   }
 
   .header-label {
@@ -200,13 +200,13 @@
 
   .ctx-menu {
     position: fixed;
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
     padding: 4px 0;
     z-index: 10000;
     min-width: 140px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 4px 12px var(--shadow-color);
   }
 
   .ctx-item {
@@ -215,15 +215,15 @@
     gap: 6px;
     padding: 4px 12px;
     font-size: 12px;
-    color: #ccc;
+    color: var(--text-primary);
     cursor: pointer;
   }
 
   .ctx-item:hover {
-    background: #333;
+    background: var(--bg-tertiary);
   }
 
   .ctx-item input[type="checkbox"] {
-    accent-color: #4a90d9;
+    accent-color: var(--accent-color);
   }
 </style>

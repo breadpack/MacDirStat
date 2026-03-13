@@ -281,8 +281,19 @@
     if (hit) {
       hoveredPath.set(hit.data.path);
       tooltipVisible = true;
-      tooltipX = e.clientX;
-      tooltipY = e.clientY;
+      // Clamp tooltip to viewport
+      const tooltipWidth = 400;
+      const tooltipHeight = 80;
+      let tx = e.clientX + 12;
+      let ty = e.clientY + 12;
+      if (tx + tooltipWidth > window.innerWidth) {
+        tx = e.clientX - tooltipWidth - 12;
+      }
+      if (ty + tooltipHeight > window.innerHeight) {
+        ty = e.clientY - tooltipHeight - 12;
+      }
+      tooltipX = tx;
+      tooltipY = ty;
       tooltipNode = hit.data;
     } else {
       hoveredPath.set(null);
@@ -354,7 +365,7 @@
   {#if tooltipVisible && tooltipNode}
     <div
       class="tooltip"
-      style="left: {tooltipX + 12}px; top: {tooltipY + 12}px"
+      style="left: {tooltipX}px; top: {tooltipY}px"
     >
       <div class="tooltip-name">{tooltipNode.name}</div>
       <div class="tooltip-size">{formatSize(tooltipNode.size)}</div>
@@ -368,7 +379,7 @@
     position: relative;
     width: 100%;
     height: 100%;
-    background: #111;
+    background: var(--bg-primary);
     overflow: hidden;
   }
 
@@ -378,28 +389,28 @@
 
   .tooltip {
     position: fixed;
-    background: rgba(30, 30, 30, 0.95);
-    border: 1px solid #555;
+    background: var(--tooltip-bg);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
     padding: 6px 10px;
     pointer-events: none;
     z-index: 100;
     max-width: 400px;
     font-size: 12px;
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .tooltip-name {
     font-weight: bold;
-    color: #fff;
+    color: var(--text-heading);
   }
 
   .tooltip-size {
-    color: #4A90D9;
+    color: var(--accent-color);
   }
 
   .tooltip-path {
-    color: #888;
+    color: var(--text-secondary);
     font-size: 11px;
     word-break: break-all;
   }

@@ -41,18 +41,18 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_interactive_supports_focus -->
 <div
   class="dialog-backdrop"
   role="dialog"
   aria-modal="true"
-  aria-label="Settings"
+  aria-labelledby="settings-dialog-title"
   onclick={handleBackdropClick}
   onkeydown={handleKeydown}
 >
   <div class="dialog">
     <div class="dialog-header">
-      <h2>Settings</h2>
+      <h2 id="settings-dialog-title">Settings</h2>
       <button class="close-btn" onclick={onClose}>x</button>
     </div>
 
@@ -91,7 +91,7 @@
   .dialog-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -99,14 +99,14 @@
   }
 
   .dialog {
-    background: #1e1e1e;
-    border: 1px solid #444;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 8px;
     width: 520px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 32px var(--shadow-color);
   }
 
   .dialog-header {
@@ -114,20 +114,20 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .dialog-header h2 {
     margin: 0;
     font-size: 16px;
     font-weight: 600;
-    color: #eee;
+    color: var(--text-heading);
   }
 
   .close-btn {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 18px;
     cursor: pointer;
     padding: 0 4px;
@@ -135,12 +135,12 @@
   }
 
   .close-btn:hover {
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .tabs {
     display: flex;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border-color);
     padding: 0 8px;
   }
 
@@ -149,19 +149,19 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #888;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
     transition: color 0.15s, border-color 0.15s;
   }
 
   .tab-btn:hover {
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .tab-btn.active {
-    color: #4A90D9;
-    border-bottom-color: #4A90D9;
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
   }
 
   .tab-body {
@@ -176,27 +176,27 @@
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--border-color);
   }
 
   .reset-btn {
     padding: 6px 14px;
     background: none;
-    border: 1px solid #555;
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #888;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 13px;
   }
 
   .reset-btn:hover {
-    background: #333;
-    color: #ccc;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .close-footer-btn {
     padding: 6px 20px;
-    background: #4A90D9;
+    background: var(--accent-color);
     border: none;
     border-radius: 4px;
     color: #fff;
@@ -205,6 +205,6 @@
   }
 
   .close-footer-btn:hover {
-    background: #5AA0E9;
+    background: color-mix(in srgb, var(--accent-color), #fff 15%);
   }
 </style>

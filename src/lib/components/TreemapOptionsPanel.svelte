@@ -233,13 +233,13 @@
     top: 8px;
     right: 8px;
     width: 260px;
-    background: rgba(30, 30, 30, 0.96);
-    border: 1px solid #444;
+    background: var(--tooltip-bg);
+    border: 1px solid var(--border-color-strong);
     border-radius: 6px;
     z-index: 50;
     font-size: 12px;
-    color: #ccc;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    color: var(--text-primary);
+    box-shadow: 0 4px 16px var(--shadow-color);
     max-height: calc(100% - 16px);
     overflow-y: auto;
   }
@@ -249,19 +249,19 @@
     justify-content: space-between;
     align-items: center;
     padding: 8px 10px;
-    border-bottom: 1px solid #444;
+    border-bottom: 1px solid var(--border-color-strong);
   }
 
   .panel-title {
     font-weight: 600;
     font-size: 13px;
-    color: #eee;
+    color: var(--text-heading);
   }
 
   .close-btn {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 18px;
     cursor: pointer;
     padding: 0 4px;
@@ -269,12 +269,12 @@
   }
 
   .close-btn:hover {
-    color: #fff;
+    color: var(--text-heading);
   }
 
   .section {
     padding: 8px 10px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border-color);
   }
 
   .section:last-child {
@@ -284,7 +284,7 @@
   .section-label {
     font-weight: 600;
     margin-bottom: 6px;
-    color: #aaa;
+    color: var(--text-secondary);
   }
 
   .preset-buttons {
@@ -295,21 +295,21 @@
   .preset-btn {
     flex: 1;
     padding: 5px 8px;
-    border: 1px solid #555;
+    border: 1px solid var(--border-color-strong);
     border-radius: 3px;
-    background: #2d2d2d;
-    color: #ccc;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
   }
 
   .preset-btn:hover {
-    background: #3d3d3d;
+    background: var(--hover-bg);
   }
 
   .preset-btn.active {
-    background: #4A90D9;
-    border-color: #4A90D9;
+    background: var(--accent-color);
+    border-color: var(--accent-color);
     color: #fff;
   }
 
@@ -319,7 +319,7 @@
     gap: 6px;
     cursor: pointer;
     font-weight: 600;
-    color: #aaa;
+    color: var(--text-secondary);
   }
 
   .checkbox-row input[type="checkbox"] {
@@ -340,13 +340,13 @@
   .slider-label {
     width: 80px;
     flex-shrink: 0;
-    color: #999;
+    color: var(--text-secondary);
   }
 
   .slider-row input[type="range"] {
     flex: 1;
     height: 4px;
-    accent-color: #4A90D9;
+    accent-color: var(--accent-color);
   }
 
   .slider-value {
@@ -354,13 +354,13 @@
     text-align: right;
     font-family: monospace;
     font-size: 11px;
-    color: #888;
+    color: var(--text-secondary);
   }
 
   .color-input {
     width: 28px;
     height: 22px;
-    border: 1px solid #555;
+    border: 1px solid var(--border-color-strong);
     border-radius: 3px;
     padding: 0;
     cursor: pointer;
@@ -374,8 +374,8 @@
   .light-pad {
     width: 80px;
     height: 80px;
-    background: #222;
-    border: 1px solid #555;
+    background: var(--bar-bg);
+    border: 1px solid var(--border-color-strong);
     border-radius: 3px;
     margin-top: 4px;
     position: relative;
@@ -386,7 +386,7 @@
   .light-crosshair-h,
   .light-crosshair-v {
     position: absolute;
-    background: #444;
+    background: var(--border-color-strong);
   }
 
   .light-crosshair-h {
@@ -407,7 +407,7 @@
     position: absolute;
     width: 10px;
     height: 10px;
-    background: #4A90D9;
+    background: var(--accent-color);
     border: 1px solid #fff;
     border-radius: 50%;
     transform: translate(-50%, -50%);
@@ -417,15 +417,15 @@
   .reset-btn {
     width: 100%;
     padding: 6px;
-    border: 1px solid #555;
+    border: 1px solid var(--border-color-strong);
     border-radius: 3px;
-    background: #2d2d2d;
-    color: #ccc;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
   }
 
   .reset-btn:hover {
-    background: #3d3d3d;
+    background: var(--hover-bg);
   }
 </style>

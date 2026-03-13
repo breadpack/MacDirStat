@@ -137,16 +137,16 @@
     font-size: 13px;
     cursor: pointer;
     white-space: nowrap;
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .tree-row:hover,
   .tree-row.hovered {
-    background: #2a2a2a;
+    background: var(--bg-secondary);
   }
 
   .tree-row.selected {
-    background: #264f78;
+    background: var(--selection-bg);
   }
 
   .cell {
@@ -166,7 +166,7 @@
   .cell-right {
     justify-content: flex-end;
     font-variant-numeric: tabular-nums;
-    color: #999;
+    color: var(--text-secondary);
   }
 
   .cell-center {
@@ -176,7 +176,7 @@
   .toggle {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 0;
     width: 16px;
@@ -199,7 +199,7 @@
   .icon.spinner {
     display: inline-block;
     animation: spin 1s linear infinite;
-    color: #4A90D9;
+    color: var(--accent-color);
   }
 
   @keyframes spin {
@@ -216,14 +216,14 @@
   .bar-container {
     width: 100%;
     height: 12px;
-    background: #222;
+    background: var(--bar-bg);
     border-radius: 2px;
     overflow: hidden;
   }
 
   .bar {
     height: 100%;
-    background: #4A90D9;
+    background: var(--accent-color);
     border-radius: 2px;
     min-width: 1px;
   }
@@ -231,7 +231,7 @@
   .attr {
     font-size: 10px;
     font-weight: bold;
-    color: #888;
+    color: var(--text-secondary);
     margin: 0 1px;
   }
 </style>

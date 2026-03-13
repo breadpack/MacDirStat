@@ -81,7 +81,7 @@
   .group-label {
     font-size: 13px;
     font-weight: 600;
-    color: #ddd;
+    color: var(--text-heading);
   }
 
   .field-row {
@@ -92,11 +92,11 @@
   }
 
   .field-label {
-    color: #999;
+    color: var(--text-secondary);
   }
 
   .field-value {
-    color: #ccc;
+    color: var(--text-primary);
   }
 
   .slider-row {
@@ -107,18 +107,18 @@
 
   .slider-row input[type="range"] {
     flex: 1;
-    accent-color: #4A90D9;
+    accent-color: var(--accent-color);
   }
 
   .slider-value {
     font-size: 13px;
-    color: #ccc;
+    color: var(--text-primary);
     min-width: 30px;
   }
 
   .checkbox-label {
     font-size: 13px;
-    color: #ccc;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -127,7 +127,7 @@
 
   .hint {
     font-size: 12px;
-    color: #888;
+    color: var(--text-secondary);
     margin: 0;
   }
 </style>

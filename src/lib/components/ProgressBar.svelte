@@ -65,8 +65,8 @@
 <style>
   .progress-bar {
     padding: 6px 12px;
-    background: #1a1a1a;
-    border-bottom: 1px solid #333;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .progress-top {
@@ -78,26 +78,26 @@
 
   .status {
     font-size: 13px;
-    color: #ccc;
+    color: var(--text-primary);
     font-weight: 500;
   }
 
   .stats {
     font-size: 12px;
-    color: #888;
+    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
   }
 
   .bar-track {
     height: 6px;
-    background: #333;
+    background: var(--border-color);
     border-radius: 3px;
     overflow: hidden;
   }
 
   .bar-fill {
     height: 100%;
-    background: #4A90D9;
+    background: var(--accent-color);
     border-radius: 3px;
     transition: width 0.3s ease;
   }
@@ -110,7 +110,7 @@
   .current-path {
     margin-top: 3px;
     font-size: 11px;
-    color: #666;
+    color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
