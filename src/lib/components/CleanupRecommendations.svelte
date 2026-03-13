@@ -186,7 +186,7 @@
         if (!t) return t;
         let updated = t;
         for (const p of rec.paths) {
-          updated = removeNode(updated, p);
+          updated = removeNode(updated, p) ?? updated;
         }
         return updated;
       });

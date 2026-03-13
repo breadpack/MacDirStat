@@ -178,7 +178,6 @@
     onClose();
   }
 
-<<<<<<< HEAD
   async function handleRecommendedCleanup() {
     if (!cleanupPatternId) return;
     const ok = await confirm(`Clean "${name}" (${formatSize(size)})?\n\nPattern: ${cleanupPatternId}`, {
