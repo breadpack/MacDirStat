@@ -33,10 +33,10 @@
     display: flex;
     align-items: center;
     padding: 4px 12px;
-    background: #1e1e1e;
-    border-top: 1px solid #333;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
     font-size: 12px;
-    color: #999;
+    color: var(--text-secondary);
     height: 24px;
   }
 
@@ -57,6 +57,6 @@
 
   .sep {
     margin: 0 8px;
-    color: #555;
+    color: var(--border-color-strong);
   }
 </style>

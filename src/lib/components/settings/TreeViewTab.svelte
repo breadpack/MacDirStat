@@ -134,7 +134,7 @@
   .group-label {
     font-size: 13px;
     font-weight: 600;
-    color: #ddd;
+    color: var(--text-heading);
   }
 
   .column-grid {
@@ -145,7 +145,7 @@
 
   .checkbox-label {
     font-size: 13px;
-    color: #ccc;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -165,15 +165,15 @@
 
   select {
     padding: 4px 8px;
-    background: #2a2a2a;
-    border: 1px solid #555;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-primary);
     font-size: 13px;
   }
 
   .hint {
     font-size: 11px;
-    color: #888;
+    color: var(--text-secondary);
   }
 </style>

@@ -163,12 +163,12 @@
   .group-label {
     font-size: 13px;
     font-weight: 600;
-    color: #ddd;
+    color: var(--text-heading);
   }
 
   .checkbox-label {
     font-size: 13px;
-    color: #ccc;
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -177,24 +177,24 @@
 
   .hint {
     font-size: 11px;
-    color: #888;
+    color: var(--text-secondary);
   }
 
   input[type="number"] {
     width: 100px;
     padding: 4px 8px;
-    background: #2a2a2a;
-    border: 1px solid #555;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-primary);
     font-size: 13px;
   }
 
   .list-container {
     max-height: 120px;
     overflow-y: auto;
-    background: #222;
-    border: 1px solid #444;
+    background: var(--bg-header);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
     padding: 4px;
   }
@@ -205,11 +205,11 @@
     justify-content: space-between;
     padding: 2px 6px;
     font-size: 12px;
-    color: #bbb;
+    color: var(--text-primary);
   }
 
   .list-item:hover {
-    background: #333;
+    background: var(--bg-tertiary);
   }
 
   .item-text {
@@ -222,14 +222,14 @@
   .remove-btn {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 0 4px;
     font-size: 12px;
   }
 
   .remove-btn:hover {
-    color: #e55;
+    color: var(--danger-color);
   }
 
   .add-row {
@@ -240,39 +240,39 @@
   .add-row input {
     flex: 1;
     padding: 4px 8px;
-    background: #2a2a2a;
-    border: 1px solid #555;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-primary);
     font-size: 12px;
   }
 
   .add-row button {
     padding: 4px 12px;
-    background: #3d3d3d;
-    border: 1px solid #555;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 12px;
   }
 
   .add-row button:hover {
-    background: #4d4d4d;
+    background: var(--hover-bg);
   }
 
   .reset-btn {
     padding: 2px 8px;
     background: none;
-    border: 1px solid #555;
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #888;
+    color: var(--text-secondary);
     cursor: pointer;
     font-size: 11px;
   }
 
   .reset-btn:hover {
-    background: #333;
-    color: #ccc;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 </style>

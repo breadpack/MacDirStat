@@ -74,22 +74,22 @@
     align-items: center;
     gap: 8px;
     padding: 8px 12px;
-    background: #1e1e1e;
-    border-bottom: 1px solid #333;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
   }
 
   button {
     padding: 6px 16px;
-    border: 1px solid #555;
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    background: #2d2d2d;
-    color: #ccc;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 13px;
   }
 
   button:hover:not(:disabled) {
-    background: #3d3d3d;
+    background: var(--hover-bg);
   }
 
   button:disabled {
@@ -106,12 +106,24 @@
   .separator {
     width: 1px;
     height: 20px;
-    background: #444;
+    background: var(--border-color-strong);
     margin: 0 4px;
   }
 
   .spacer {
     flex: 1;
+  }
+
+  button.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
+  }
+
+  .options-btn.active {
+    background: var(--accent-color);
+    border-color: var(--accent-color);
+    color: #fff;
   }
 
   @keyframes pulse {

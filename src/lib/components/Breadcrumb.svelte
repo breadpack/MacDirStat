@@ -67,22 +67,22 @@
     display: flex;
     align-items: center;
     padding: 4px 8px;
-    background: #1a1a1a;
-    border-bottom: 1px solid #333;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
     font-size: 12px;
     overflow-x: auto;
     white-space: nowrap;
   }
 
   .separator {
-    color: #666;
+    color: var(--text-secondary);
     margin: 0 4px;
   }
 
   .crumb {
     background: none;
     border: none;
-    color: #4A90D9;
+    color: var(--text-link);
     cursor: pointer;
     padding: 2px 4px;
     border-radius: 2px;
@@ -90,11 +90,11 @@
   }
 
   .crumb:hover {
-    background: #2a2a2a;
-    color: #6BA5DA;
+    background: var(--bg-secondary);
+    color: var(--accent-color);
   }
 
   .crumb:last-child {
-    color: #ccc;
+    color: var(--text-primary);
   }
 </style>

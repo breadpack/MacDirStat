@@ -121,8 +121,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #1a1a1a;
-    border-top: 1px solid #333;
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
   }
 
   .log-header {
@@ -130,15 +130,15 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: #222;
-    border-bottom: 1px solid #333;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
   }
 
   .log-title {
     font-size: 13px;
     font-weight: 600;
-    color: #ccc;
+    color: var(--text-primary);
     margin-right: 8px;
   }
 
@@ -148,17 +148,17 @@
   }
 
   .filter-btn {
-    background: #2a2a2a;
-    border: 1px solid #444;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 3px;
-    color: #999;
+    color: var(--text-secondary);
     font-size: 11px;
     padding: 2px 8px;
     cursor: pointer;
   }
 
-  .filter-btn:hover { background: #333; }
-  .filter-btn.active { background: #3a3a3a; color: #eee; border-color: #666; }
+  .filter-btn:hover { background: var(--bg-tertiary); }
+  .filter-btn.active { background: var(--hover-bg); color: var(--text-heading); border-color: var(--border-color-strong); }
   .filter-btn.error.active { color: #e55; }
   .filter-btn.warn.active { color: #da4; }
   .filter-btn.skip.active { color: #888; }
@@ -166,7 +166,7 @@
   .auto-scroll {
     margin-left: auto;
     font-size: 11px;
-    color: #888;
+    color: var(--text-secondary);
     display: flex;
     align-items: center;
     gap: 4px;
@@ -176,12 +176,12 @@
   .close-btn {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 16px;
     cursor: pointer;
     padding: 0 4px;
   }
-  .close-btn:hover { color: #eee; }
+  .close-btn:hover { color: var(--text-heading); }
 
   .log-list {
     flex: 1;
@@ -195,11 +195,11 @@
     align-items: baseline;
     gap: 6px;
     padding: 2px 12px;
-    border-bottom: 1px solid #1f1f1f;
+    border-bottom: 1px solid var(--bg-secondary);
   }
 
   .log-entry:hover {
-    background: #222;
+    background: var(--bg-header);
   }
 
   .log-icon {
@@ -216,13 +216,13 @@
   }
 
   .log-message {
-    color: #ccc;
+    color: var(--text-primary);
     white-space: nowrap;
     flex-shrink: 0;
   }
 
   .log-path {
-    color: #666;
+    color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -234,6 +234,6 @@
   .log-empty {
     padding: 16px;
     text-align: center;
-    color: #555;
+    color: var(--text-secondary);
   }
 </style>

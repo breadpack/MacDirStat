@@ -66,12 +66,13 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<div class="modal-overlay" onclick={onClose}>
+<!-- svelte-ignore a11y_interactive_supports_focus -->
+<div class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cleanup-settings-title" onclick={onClose} onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="modal" onclick={(e) => e.stopPropagation()}>
     <div class="modal-header">
-      <h2>Cleanup Actions</h2>
+      <h2 id="cleanup-settings-title">Cleanup Actions</h2>
       <button class="close-btn" onclick={onClose}>x</button>
     </div>
 
@@ -153,7 +154,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--overlay-bg);
     z-index: 300;
     display: flex;
     align-items: center;
@@ -161,14 +162,14 @@
   }
 
   .modal {
-    background: #2a2a2a;
-    border: 1px solid #555;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color-strong);
     border-radius: 8px;
-    width: 680px;
+    width: min(680px, calc(100vw - 32px));
     max-height: 85vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 8px 32px var(--shadow-color);
   }
 
   .modal-header {
@@ -176,41 +177,41 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 16px;
-    border-bottom: 1px solid #444;
+    border-bottom: 1px solid var(--border-color-strong);
   }
 
   .modal-header h2 {
     margin: 0;
     font-size: 16px;
-    color: #eee;
+    color: var(--text-heading);
   }
 
   .close-btn {
     background: none;
     border: none;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 18px;
     cursor: pointer;
     padding: 2px 6px;
   }
 
   .close-btn:hover {
-    color: #fff;
+    color: var(--text-heading);
   }
 
   .help-bar {
     padding: 8px 16px;
-    background: #333;
+    background: var(--bg-tertiary);
     font-size: 12px;
-    color: #aaa;
-    border-bottom: 1px solid #444;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color-strong);
   }
 
   .help-bar code {
-    background: #444;
+    background: var(--border-color-strong);
     padding: 1px 4px;
     border-radius: 3px;
-    color: #ddd;
+    color: var(--text-primary);
   }
 
   .actions-list {
@@ -220,7 +221,7 @@
   }
 
   .action-row {
-    border: 1px solid #444;
+    border: 1px solid var(--border-color-strong);
     border-radius: 6px;
     padding: 8px 10px;
     margin-bottom: 6px;
@@ -246,24 +247,24 @@
 
   .slot-num {
     font-size: 12px;
-    color: #888;
+    color: var(--text-secondary);
     font-weight: 600;
     min-width: 12px;
   }
 
   .name-input {
     flex: 1;
-    background: #333;
-    border: 1px solid #555;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ddd;
+    color: var(--text-primary);
     padding: 4px 8px;
     font-size: 13px;
   }
 
   .shortcut-hint {
     font-size: 11px;
-    color: #777;
+    color: var(--text-secondary);
     white-space: nowrap;
   }
 
@@ -273,10 +274,10 @@
 
   .command-input {
     width: 100%;
-    background: #333;
-    border: 1px solid #555;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
     border-radius: 4px;
-    color: #ddd;
+    color: var(--text-primary);
     padding: 4px 8px;
     font-size: 12px;
     font-family: monospace;
@@ -293,7 +294,7 @@
     gap: 12px;
     flex-wrap: wrap;
     font-size: 12px;
-    color: #aaa;
+    color: var(--text-secondary);
   }
 
   .action-options label {
@@ -304,16 +305,16 @@
   }
 
   .action-options select {
-    background: #333;
-    border: 1px solid #555;
-    color: #ddd;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color-strong);
+    color: var(--text-primary);
     border-radius: 3px;
     font-size: 11px;
     padding: 1px 4px;
   }
 
   .error-msg {
-    color: #e55;
+    color: var(--danger-color);
     padding: 4px 16px;
     font-size: 12px;
   }
@@ -323,7 +324,7 @@
     justify-content: flex-end;
     gap: 8px;
     padding: 10px 16px;
-    border-top: 1px solid #444;
+    border-top: 1px solid var(--border-color-strong);
   }
 
   .btn {
@@ -335,21 +336,21 @@
   }
 
   .btn.cancel {
-    background: #444;
-    color: #ccc;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
   }
 
   .btn.cancel:hover {
-    background: #555;
+    background: var(--border-color-strong);
   }
 
   .btn.save {
-    background: #2a7;
+    background: var(--success-color);
     color: #fff;
   }
 
   .btn.save:hover {
-    background: #3b8;
+    background: var(--success-hover);
   }
 
   .btn:disabled {
