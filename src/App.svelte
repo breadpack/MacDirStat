@@ -35,7 +35,7 @@
   import { cleanupActions, loadCleanupActions, runCleanup } from "./lib/stores/cleanupStore";
   import { settings } from "./lib/stores/settingsStore";
   import { findNode } from "./lib/utils/treeUtils";
-  import { confirm } from "@tauri-apps/plugin-dialog";
+  import { confirm, message } from "@tauri-apps/plugin-dialog";
 
   let fdaChecked = $state(false);
   let fdaGranted = $state(false);
@@ -205,7 +205,7 @@
       }
     } catch (e) {
       console.error(`Cleanup "${action.name}" failed:`, e);
-      window.alert(`Cleanup failed: ${e}`);
+      await message(`Cleanup failed: ${e}`, { kind: "error" });
     }
   }
 

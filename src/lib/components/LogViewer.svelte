@@ -98,7 +98,7 @@
   </div>
 
   <div class="log-list" bind:this={listEl}>
-    {#each filteredLogs as entry (entry)}
+    {#each filteredLogs as entry, i (i)}
       <div class="log-entry">
         <span class="log-icon" style="color: {levelColor(entry.level)}">
           {levelIcon(entry.level)}

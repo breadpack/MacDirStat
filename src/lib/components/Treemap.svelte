@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FileNode } from "../types";
+  import { findNode } from "../utils/treeUtils";
   import { tree, dirSizes, currentVolume } from "../stores/scanStore";
   import { selectedPath, hoveredPath, zoomRoot, showFreeSpace, showUnknown } from "../stores/selectionStore";
   import { computeTreemap, type TreemapRect } from "../utils/treemapLayout";
@@ -43,18 +44,6 @@
   let tooltipX = $state(0);
   let tooltipY = $state(0);
   let tooltipNode: FileNode | null = $state(null);
-
-  function findNodeByPath(node: FileNode, targetPath: string): FileNode | null {
-    if (node.path === targetPath) return node;
-    if (!node.is_dir) return null;
-    const prefix = node.path.endsWith("/") ? node.path : node.path + "/";
-    if (!targetPath.startsWith(prefix)) return null;
-    for (const child of node.children) {
-      const found = findNodeByPath(child, targetPath);
-      if (found) return found;
-    }
-    return null;
-  }
 
   /**
    * dirSizes의 실시간 크기를 트리에 반영한 복사본 생성.
@@ -102,7 +91,7 @@
     if (!t) return null;
     const zr = $zoomRoot;
     if (zr) {
-      return findNodeByPath(t, zr) ?? t;
+      return findNode(t, zr) ?? t;
     }
     return t;
   });

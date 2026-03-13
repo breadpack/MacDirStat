@@ -10,7 +10,7 @@ const STORE_FILE = "settings.json";
 const STORE_KEY = "app-settings";
 const LS_FALLBACK_KEY = "macdirstat-settings";
 
-function deepMerge<T extends Record<string, unknown>>(defaults: T, partial: Partial<T>): T {
+function deepMerge<T extends object>(defaults: T, partial: Partial<T>): T {
   const result = { ...defaults };
   for (const key of Object.keys(defaults) as (keyof T)[]) {
     if (
@@ -20,8 +20,8 @@ function deepMerge<T extends Record<string, unknown>>(defaults: T, partial: Part
       !Array.isArray(defaults[key])
     ) {
       result[key] = deepMerge(
-        defaults[key] as Record<string, unknown>,
-        partial[key] as Record<string, unknown>,
+        defaults[key] as object,
+        partial[key] as object,
       ) as T[keyof T];
     } else if (partial[key] !== undefined) {
       result[key] = partial[key] as T[keyof T];
@@ -30,7 +30,9 @@ function deepMerge<T extends Record<string, unknown>>(defaults: T, partial: Part
   return result;
 }
 
-let storeInstance: any = null;
+import type { Store } from "@tauri-apps/plugin-store";
+
+let storeInstance: Store | null = null;
 
 async function getStore() {
   if (storeInstance) return storeInstance;

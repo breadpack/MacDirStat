@@ -15,7 +15,9 @@ export interface ExtensionStat {
 export function computeExtensionStats(root: FileNode): ExtensionStat[] {
   const map = new Map<string, { bytes: number; count: number }>();
 
-  function walk(node: FileNode) {
+  const stack: FileNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
     if (!node.is_dir) {
       const ext = node.extension?.toLowerCase() ?? "(no ext)";
       const entry = map.get(ext);
@@ -27,11 +29,9 @@ export function computeExtensionStats(root: FileNode): ExtensionStat[] {
       }
     }
     for (const child of node.children) {
-      walk(child);
+      stack.push(child);
     }
   }
-
-  walk(root);
 
   // Convert to array and sort by bytes descending
   const totalBytes = Array.from(map.values()).reduce((s, e) => s + e.bytes, 0);

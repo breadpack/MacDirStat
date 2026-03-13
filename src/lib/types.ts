@@ -20,11 +20,7 @@ export interface ScanProgress {
   current_path: string;
   total_dirs: number;
   completed_dirs: number;
-  current_dir_name: string;
-  current_dir_files: number;
-  current_dir_bytes: number;
   total_bytes: number;
-  scanning_dirs: string[];
   dir_sizes: [string, number, number][];
 }
 

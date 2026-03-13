@@ -3,12 +3,12 @@
  * toolbar buttons, or context menus.
  */
 
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, confirm, message } from "@tauri-apps/plugin-dialog";
 import { get } from "svelte/store";
 import { tree, scanning, startScan, currentVolume } from "../stores/scanStore";
 import { selectedPath, zoomRoot, showFreeSpace, showUnknown } from "../stores/selectionStore";
 import { moveToTrash, showGetInfo } from "../api";
-import type { FileNode } from "../types";
+import { removeNode } from "./treeUtils";
 
 /**
  * Open a folder dialog and start scanning.
@@ -60,7 +60,7 @@ export async function actionMoveToTrash(): Promise<void> {
   if (sp === t.path) return;
 
   const name = sp.split("/").pop() ?? sp;
-  const ok = window.confirm(`Move "${name}" to Trash?`);
+  const ok = await confirm(`Move "${name}" to Trash?`);
   if (!ok) return;
 
   try {
@@ -71,7 +71,7 @@ export async function actionMoveToTrash(): Promise<void> {
     });
   } catch (e) {
     console.error("Failed to move to trash:", e);
-    window.alert(`Failed to move to trash: ${e}`);
+    await message(`Failed to move to trash: ${e}`, { kind: "error" });
   }
 }
 
@@ -106,45 +106,4 @@ export function actionToggleUnknown(): void {
   if (!t) return;
   if (!get(currentVolume) || get(zoomRoot)) return;
   showUnknown.update((v) => !v);
-}
-
-// ---- internal helpers ----
-
-/**
- * Immutably remove a node from the tree, returning a new tree with updated
- * sizes/counts. Returns null if the target was not found.
- */
-function removeNode(node: FileNode, targetPath: string): FileNode | null {
-  const idx = node.children.findIndex((c) => c.path === targetPath);
-  if (idx >= 0) {
-    const removed = node.children[idx];
-    const newChildren = node.children.filter((c) => c.path !== targetPath);
-    return {
-      ...node,
-      children: newChildren,
-      size: node.size - removed.size,
-      file_count: node.file_count - (removed.is_dir ? removed.file_count : 1),
-      dir_count: node.dir_count - (removed.is_dir ? 1 + removed.dir_count : 0),
-    };
-  }
-  for (let i = 0; i < node.children.length; i++) {
-    const child = node.children[i];
-    if (!child.children) continue;
-    const updated = removeNode(child, targetPath);
-    if (updated) {
-      const sizeDiff = child.size - updated.size;
-      const fileDiff = child.file_count - updated.file_count;
-      const dirDiff = child.dir_count - updated.dir_count;
-      const newChildren = [...node.children];
-      newChildren[i] = updated;
-      return {
-        ...node,
-        children: newChildren,
-        size: node.size - sizeDiff,
-        file_count: node.file_count - fileDiff,
-        dir_count: node.dir_count - dirDiff,
-      };
-    }
-  }
-  return null;
 }
