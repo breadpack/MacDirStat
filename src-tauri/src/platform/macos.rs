@@ -140,11 +140,12 @@ pub fn open_in_finder(path: &str) -> Result<(), String> {
 }
 
 pub fn show_get_info(path: &str) -> Result<(), String> {
+    let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
     std::process::Command::new("osascript")
         .arg("-e")
         .arg(&format!(
             r#"tell application "Finder" to open information window of (POSIX file "{}" as alias)"#,
-            path
+            escaped
         ))
         .spawn()
         .map_err(|e| e.to_string())?;

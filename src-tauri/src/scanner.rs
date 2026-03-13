@@ -45,11 +45,7 @@ pub(crate) fn make_progress(phase: &str) -> ScanProgress {
         current_path: String::new(),
         total_dirs: 0,
         completed_dirs: 0,
-        current_dir_name: String::new(),
-        current_dir_files: 0,
-        current_dir_bytes: 0,
         total_bytes: 0,
-        scanning_dirs: Vec::new(),
         dir_sizes: Vec::new(),
     }
 }
@@ -171,9 +167,7 @@ pub fn scan_directory(
                     total_dirs,
                     completed_dirs: cd.load(Ordering::Relaxed),
                     total_bytes: tb.load(Ordering::Relaxed),
-                    scanning_dirs: Vec::new(),
                     dir_sizes: sizes,
-                    ..make_progress("files")
                 });
             }
         })

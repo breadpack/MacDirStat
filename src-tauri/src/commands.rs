@@ -70,17 +70,7 @@ pub async fn scan_subdirectory(
     on_tree: Channel<FileNode>,
     state: State<'_, ScanState>,
 ) -> Result<Option<FileNode>, String> {
-    state.cancel_token.store(false, Ordering::Relaxed);
-
-    let options = build_scan_options(exclude_paths, exclude_names, follow_symlinks, max_children_per_dir);
-    let cancel_token = Arc::clone(&state.cancel_token);
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        scanner::scan_directory(&path, cancel_token, on_progress, on_log, on_tree, options)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(result)
+    scan_directory(path, exclude_paths, exclude_names, follow_symlinks, max_children_per_dir, on_progress, on_log, on_tree, state).await
 }
 
 #[tauri::command]
@@ -101,7 +91,19 @@ pub fn open_in_finder(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn move_to_trash(path: String) -> Result<(), String> {
-    trash::delete(&path).map_err(|e| e.to_string())
+    let canonical = std::path::Path::new(&path)
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let canonical_str = canonical.to_string_lossy();
+    for root in PROTECTED_ROOTS {
+        if canonical_str == *root || canonical_str.starts_with(&format!("{}/", root)) {
+            return Err(format!("Cannot trash protected system path: {}", root));
+        }
+    }
+    if !canonical.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    trash::delete(&canonical).map_err(|e| e.to_string())
 }
 
 /// Protected system paths that must never be permanently deleted.
@@ -115,19 +117,18 @@ pub fn permanent_delete(path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let canonical_str = canonical.to_string_lossy();
     for root in PROTECTED_ROOTS {
-        if canonical_str == *root {
+        if canonical_str == *root || canonical_str.starts_with(&format!("{}/", root)) {
             return Err(format!("Cannot delete protected system path: {}", root));
         }
     }
 
-    let p = std::path::Path::new(&path);
-    if !p.exists() {
+    if !canonical.exists() {
         return Err(format!("Path does not exist: {}", path));
     }
-    if p.is_dir() {
-        std::fs::remove_dir_all(&path).map_err(|e| e.to_string())
+    if canonical.is_dir() {
+        std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())
     } else {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())
+        std::fs::remove_file(&canonical).map_err(|e| e.to_string())
     }
 }
 
@@ -220,9 +221,7 @@ pub fn execute_cleanup(action_id: u8, path: String, name: String) -> Result<Stri
     let lower = command.to_lowercase();
     for pattern in DANGEROUS_PATTERNS {
         if lower.contains(pattern) {
-            // Return a warning prefix so frontend can show extra confirmation
-            // But still proceed if called (frontend handles the confirm)
-            break;
+            return Err(format!("Command contains dangerous pattern '{}'. Refusing to execute.", pattern));
         }
     }
 
@@ -262,7 +261,13 @@ end tell"#,
 
 /// Detect the user's login shell (defaults to /bin/zsh on macOS)
 fn user_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+    const ALLOWED_SHELLS: &[&str] = &["/bin/sh", "/bin/bash", "/bin/zsh", "/usr/local/bin/fish", "/opt/homebrew/bin/fish", "/bin/dash", "/usr/local/bin/bash"];
+    if ALLOWED_SHELLS.contains(&shell.as_str()) {
+        shell
+    } else {
+        "/bin/zsh".to_string()
+    }
 }
 
 fn execute_background(command: &str) -> Result<String, String> {
@@ -384,7 +389,12 @@ pub async fn execute_cleanup_recommendation(
     // use the cleanup_method passed from the frontend recommendation.
     let cleanup = match (&pattern, &cleanup_method) {
         (Some(p), _) => p.cleanup.clone(),
-        (None, Some(m)) => m.clone(),
+        (None, Some(m)) => {
+            if !pattern_id.starts_with("xcode-simulator-runtimes-") {
+                return Err(format!("Untrusted cleanup method for unknown pattern: {}", pattern_id));
+            }
+            m.clone()
+        },
         (None, None) => return Err(format!("Pattern not found: {}", pattern_id)),
     };
 
@@ -406,7 +416,7 @@ pub async fn execute_cleanup_recommendation(
                 })?;
                 let canonical_str = canonical.to_string_lossy();
                 for root in PROTECTED_ROOTS {
-                    if canonical_str.as_ref() == *root {
+                    if canonical_str.as_ref() == *root || canonical_str.starts_with(&format!("{}/", root)) {
                         return Err(format!(
                             "Cannot delete protected system path: {}",
                             root
@@ -414,14 +424,14 @@ pub async fn execute_cleanup_recommendation(
                     }
                 }
 
-                let size = cleanup_patterns::dir_size(p);
+                let size = cleanup_patterns::dir_size(&canonical);
 
                 if use_trash {
-                    trash::delete(path_str).map_err(|e| e.to_string())?;
-                } else if p.is_dir() {
-                    std::fs::remove_dir_all(path_str).map_err(|e| e.to_string())?;
+                    trash::delete(&canonical).map_err(|e| e.to_string())?;
+                } else if canonical.is_dir() {
+                    std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())?;
                 } else {
-                    std::fs::remove_file(path_str).map_err(|e| e.to_string())?;
+                    std::fs::remove_file(&canonical).map_err(|e| e.to_string())?;
                 }
 
                 total_freed += size;
@@ -529,7 +539,7 @@ fn scan_simulator_runtimes(pattern: &cleanup_patterns::CleanupPattern) -> Vec<Cl
             &last_used[..10.min(last_used.len())]
         );
 
-        let delete_cmd = format!("xcrun simctl runtime delete {}", identifier);
+        let delete_cmd = format!("xcrun simctl runtime delete {}", shell_escape(identifier));
 
         results.push(CleanupRecommendation {
             pattern_id: format!("xcode-simulator-runtimes-{}", identifier),

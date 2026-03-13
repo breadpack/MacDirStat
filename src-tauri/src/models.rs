@@ -50,11 +50,7 @@ pub struct ScanProgress {
     pub current_path: String,
     pub total_dirs: u32,
     pub completed_dirs: u32,
-    pub current_dir_name: String,
-    pub current_dir_files: u64,
-    pub current_dir_bytes: u64,
     pub total_bytes: u64,
-    pub scanning_dirs: Vec<String>,
     /// 디렉토리별 실시간 크기: [(path, size, file_count), ...]
     pub dir_sizes: Vec<(String, u64, u64)>,
 }

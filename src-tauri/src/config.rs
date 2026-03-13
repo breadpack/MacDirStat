@@ -4,7 +4,10 @@ use std::path::PathBuf;
 use crate::models::{CleanupAction, CleanupTarget};
 
 fn config_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| {
+        eprintln!("WARNING: HOME environment variable not set, using /var/empty as fallback");
+        "/var/empty".to_string()
+    });
     let dir = PathBuf::from(home)
         .join("Library")
         .join("Application Support")

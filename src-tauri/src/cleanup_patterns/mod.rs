@@ -196,23 +196,36 @@ pub fn matches_path_pattern(pattern: &CleanupPattern, path: &Path) -> bool {
 /// Expand ~ to the user's home directory
 pub fn expand_home(path: &str) -> PathBuf {
     if path.starts_with("~/") {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/var/empty".to_string());
         PathBuf::from(home).join(&path[2..])
     } else {
         PathBuf::from(path)
     }
 }
 
+/// Get the physical size of a file from its metadata
+fn file_physical_size(m: &std::fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        m.blocks() * 512
+    }
+    #[cfg(not(unix))]
+    {
+        m.len()
+    }
+}
+
 /// Recursively calculate directory size using walkdir
 pub fn dir_size(path: &Path) -> u64 {
     if path.is_file() {
-        return path.metadata().map(|m| m.len()).unwrap_or(0);
+        return path.metadata().map(|m| file_physical_size(&m)).unwrap_or(0);
     }
     walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
+        .map(|m| file_physical_size(&m))
         .sum()
 }
