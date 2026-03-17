@@ -50,8 +50,17 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
+      - name: Check signing availability
+        id: signing
+        run: |
+          if [ -n "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Import Apple signing certificate
-        if: env.APPLE_CERTIFICATE != ''
+        if: steps.signing.outputs.available == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -67,20 +76,26 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           rm certificate.p12
 
-      - name: Build Tauri app
+      - name: Build Tauri app (with signing)
+        if: steps.signing.outputs.available == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple code signing
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # Apple notarization
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: __SKIP__ # don't create release yet, will be done in the universal job
+          args: --target ${{ matrix.target }}
+
+      - name: Build Tauri app (without signing)
+        if: steps.signing.outputs.available != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
           args: --target ${{ matrix.target }}
 
       - name: Upload build artifacts
