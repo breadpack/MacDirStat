@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
+  build:
     permissions:
       contents: write
     strategy:
@@ -15,14 +15,16 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: --target aarch64-apple-darwin
+            target: aarch64-apple-darwin
           - platform: macos-latest
-            args: --target x86_64-apple-darwin
+            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for changelog generation
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -48,14 +50,190 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install
 
-      - name: Build and release
+      - name: Import Apple signing certificate
+        if: env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          rm certificate.p12
+
+      - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Apple code signing
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Apple notarization
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'MacDirStat ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install MacDirStat.'
-          releaseDraft: true
+          tagName: __SKIP__ # don't create release yet, will be done in the universal job
+          args: --target ${{ matrix.target }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+
+  universal:
+    needs: build
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-aarch64-apple-darwin
+          path: artifacts/arm64
+
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x86_64-apple-darwin
+          path: artifacts/x86_64
+
+      - name: Create Universal Binary
+        run: |
+          set -e
+
+          # Find the .app bundles
+          ARM64_APP=$(find artifacts/arm64 -name "*.app" -type d | head -1)
+          X86_APP=$(find artifacts/x86_64 -name "*.app" -type d | head -1)
+
+          if [ -z "$ARM64_APP" ] || [ -z "$X86_APP" ]; then
+            echo "Could not find .app bundles"
+            ls -R artifacts/
+            exit 1
+          fi
+
+          APP_NAME=$(basename "$ARM64_APP")
+          UNIVERSAL_DIR="artifacts/universal"
+          mkdir -p "$UNIVERSAL_DIR"
+
+          # Copy arm64 app as base (preserves bundle structure, Info.plist, etc.)
+          cp -R "$ARM64_APP" "$UNIVERSAL_DIR/$APP_NAME"
+
+          # Find the main binary inside the .app
+          BINARY_NAME="${APP_NAME%.app}"
+          UNIVERSAL_BIN="$UNIVERSAL_DIR/$APP_NAME/Contents/MacOS/$BINARY_NAME"
+          ARM64_BIN="$ARM64_APP/Contents/MacOS/$BINARY_NAME"
+          X86_BIN="$X86_APP/Contents/MacOS/$BINARY_NAME"
+
+          # Create universal binary with lipo
+          lipo -create "$ARM64_BIN" "$X86_BIN" -output "$UNIVERSAL_BIN"
+          lipo -info "$UNIVERSAL_BIN"
+
+          # Re-sign if identity is available
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" "$UNIVERSAL_DIR/$APP_NAME"
+          else
+            codesign --force --deep --sign - "$UNIVERSAL_DIR/$APP_NAME"
+          fi
+
+          # Create DMG
+          DMG_NAME="MacDirStat_$(echo ${{ github.ref_name }} | sed 's/^v//')_universal.dmg"
+          hdiutil create -volname "MacDirStat" -srcfolder "$UNIVERSAL_DIR/$APP_NAME" \
+            -ov -format UDZO "artifacts/$DMG_NAME"
+
+          # Create tar.gz for Tauri updater
+          cd "$UNIVERSAL_DIR"
+          tar -czf "../MacDirStat_universal.app.tar.gz" "$APP_NAME"
+          cd -
+
+          echo "DMG_PATH=artifacts/$DMG_NAME" >> $GITHUB_ENV
+          echo "TARGZ_PATH=artifacts/MacDirStat_universal.app.tar.gz" >> $GITHUB_ENV
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | sed -n '2p')
+          CURRENT_TAG="${{ github.ref_name }}"
+
+          if [ -z "$PREV_TAG" ]; then
+            # First release — use all commits
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+            RANGE="$PREV_TAG..HEAD"
+          else
+            RANGE="$PREV_TAG..$CURRENT_TAG"
+          fi
+
+          echo "Generating changelog for $RANGE"
+
+          # Categorize commits
+          {
+            echo "## What's Changed"
+            echo ""
+
+            # Features
+            FEATS=$(git log "$RANGE" --pretty=format:"- %s" --grep="^feat" --no-merges)
+            if [ -n "$FEATS" ]; then
+              echo "### ✨ Features"
+              echo "$FEATS"
+              echo ""
+            fi
+
+            # Fixes
+            FIXES=$(git log "$RANGE" --pretty=format:"- %s" --grep="^fix" --no-merges)
+            if [ -n "$FIXES" ]; then
+              echo "### 🐛 Bug Fixes"
+              echo "$FIXES"
+              echo ""
+            fi
+
+            # Refactoring / Style / CI
+            OTHER=$(git log "$RANGE" --pretty=format:"- %s" --no-merges | grep -v "^- feat" | grep -v "^- fix" || true)
+            if [ -n "$OTHER" ]; then
+              echo "### 🔧 Other Changes"
+              echo "$OTHER"
+              echo ""
+            fi
+
+            if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG"
+            fi
+          } > changelog.md
+
+          cat changelog.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: MacDirStat ${{ github.ref_name }}
+          body_path: changelog.md
+          draft: true
           prerelease: false
-          args: ${{ matrix.args }}
+          files: |
+            ${{ env.DMG_PATH }}
+            ${{ env.TARGZ_PATH }}
+            artifacts/arm64/**/*.dmg
+            artifacts/x86_64/**/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
