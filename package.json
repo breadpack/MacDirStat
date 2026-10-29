@@ -1,6 +1,6 @@
 {
   "name": "macdirstat",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Cross-platform disk usage visualization tool",
   "type": "module",
   "scripts": {
