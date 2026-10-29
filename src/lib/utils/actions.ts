@@ -5,10 +5,10 @@
 
 import { open, confirm, message } from "@tauri-apps/plugin-dialog";
 import { get } from "svelte/store";
-import { tree, scanning, startScan, currentVolume } from "../stores/scanStore";
+import { tree, scanning, startScan, currentVolume, reloadTree, refreshSubtree } from "../stores/scanStore";
+import { cleanupActions, runCleanup } from "../stores/cleanupStore";
 import { selectedPath, zoomRoot, showFreeSpace, showUnknown } from "../stores/selectionStore";
-import { moveToTrash, showGetInfo } from "../api";
-import { removeNode } from "./treeUtils";
+import { moveToTrash, showGetInfo, getNode } from "../api";
 
 /**
  * Open a folder dialog and start scanning.
@@ -49,7 +49,7 @@ export async function actionCopyPath(): Promise<void> {
 
 /**
  * Move the currently selected item to Trash.
- * Removes the node from the tree on success.
+ * The backend removes the node from the scan tree on success.
  */
 export async function actionMoveToTrash(): Promise<void> {
   const sp = get(selectedPath);
@@ -64,11 +64,8 @@ export async function actionMoveToTrash(): Promise<void> {
   if (!ok) return;
 
   try {
-    await moveToTrash(sp);
-    tree.update((t) => {
-      if (!t) return t;
-      return removeNode(t, sp) ?? t;
-    });
+    await moveToTrash(sp); // backend also removes the node from its tree
+    await reloadTree();
   } catch (e) {
     console.error("Failed to move to trash:", e);
     await message(`Failed to move to trash: ${e}`, { kind: "error" });
@@ -106,4 +103,47 @@ export function actionToggleUnknown(): void {
   if (!t) return;
   if (!get(currentVolume) || get(zoomRoot)) return;
   showUnknown.update((v) => !v);
+}
+
+/**
+ * Run the user-defined cleanup action in `slotId` on the selected item (Cmd+Shift+0~9).
+ */
+export async function actionRunCleanupSlot(slotId: number): Promise<void> {
+  const action = get(cleanupActions).find((a) => a.id === slotId);
+  if (!action || !action.enabled || !action.name.trim() || !action.command.trim()) return;
+
+  const currentPath = get(selectedPath);
+  if (!currentPath) return;
+
+  if (!get(tree)) return;
+
+  const node = await getNode(currentPath);
+  if (!node) return;
+
+  // Check target compatibility
+  if (action.target === "Files" && node.is_dir) return;
+  if (action.target === "Dirs" && !node.is_dir) return;
+
+  if (action.confirm) {
+    const ok = await confirm(`Run "${action.name}" on "${node.name}"?`, {
+      title: "Run Cleanup",
+      kind: "info",
+      okLabel: "Run",
+      cancelLabel: "Cancel",
+    });
+    if (!ok) return;
+  }
+
+  try {
+    const result = await runCleanup(action.id, node.path, node.name);
+    if (!action.run_in_terminal && result) {
+      console.log(`Cleanup "${action.name}" result:`, result);
+    }
+    if (action.refresh_after && node.is_dir) {
+      await refreshSubtree(node.path);
+    }
+  } catch (e) {
+    console.error(`Cleanup "${action.name}" failed:`, e);
+    await message(`Cleanup failed: ${e}`, { kind: "error" });
+  }
 }

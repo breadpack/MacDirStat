@@ -1,4 +1,4 @@
-import type { FileNode, VolumeInfo } from "../types";
+import type { TreemapNode, VolumeInfo } from "../types";
 
 /** Special path constants for virtual nodes. */
 export const FREESPACE_PATH = "/__freespace__";
@@ -20,11 +20,11 @@ export function isSpecialPath(path: string): boolean {
  * Only meaningful when viewing the scan root (not a zoomed subdirectory).
  */
 export function injectSpecialNodes(
-  root: FileNode,
+  root: TreemapNode,
   volume: VolumeInfo | null,
   showFree: boolean,
   showUnk: boolean,
-): FileNode {
+): TreemapNode {
   if (!volume) return root;
   if (!showFree && !showUnk) return root;
 
@@ -33,7 +33,7 @@ export function injectSpecialNodes(
   const freeSize = volume.available_bytes;
   const unknownSize = Math.max(0, totalSize - scannedSize - freeSize);
 
-  const extraChildren: FileNode[] = [];
+  const extraChildren: TreemapNode[] = [];
 
   if (showFree && freeSize > 0) {
     extraChildren.push({
@@ -42,13 +42,8 @@ export function injectSpecialNodes(
       size: freeSize,
       is_dir: false,
       children: [],
-      file_count: 0,
-      dir_count: 0,
-      modified: null,
-      is_symlink: false,
-      is_hidden: false,
-      is_readonly: false,
       extension: "__freespace__",
+      cleanup_pattern_id: null,
     });
   }
 
@@ -59,13 +54,8 @@ export function injectSpecialNodes(
       size: unknownSize,
       is_dir: false,
       children: [],
-      file_count: 0,
-      dir_count: 0,
-      modified: null,
-      is_symlink: false,
-      is_hidden: false,
-      is_readonly: false,
       extension: "__unknown__",
+      cleanup_pattern_id: null,
     });
   }
 

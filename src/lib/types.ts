@@ -1,9 +1,9 @@
+/** 백엔드 트리의 단일 노드 요약. 자식은 getChildren()으로 별도 조회한다. */
 export interface FileNode {
   name: string;
   path: string;
   size: number;
   is_dir: boolean;
-  children: FileNode[];
   file_count: number;
   extension: string | null;
   dir_count: number;
@@ -12,6 +12,24 @@ export interface FileNode {
   is_hidden: boolean;
   is_readonly: boolean;
   cleanup_pattern_id: string | null;
+  child_count: number;
+}
+
+/** 트리맵 레이아웃용 경량 트리 (백엔드에서 크기 기준으로 가지치기됨) */
+export interface TreemapNode {
+  name: string;
+  path: string;
+  size: number;
+  is_dir: boolean;
+  extension: string | null;
+  cleanup_pattern_id: string | null;
+  children: TreemapNode[];
+}
+
+export interface RawExtensionStat {
+  extension: string;
+  total_bytes: number;
+  file_count: number;
 }
 
 export interface ScanProgress {
@@ -21,7 +39,8 @@ export interface ScanProgress {
   total_dirs: number;
   completed_dirs: number;
   total_bytes: number;
-  dir_sizes: [string, number, number][];
+  /** 백엔드 트리가 갱신될 때마다 증가 */
+  tree_version: number;
 }
 
 export interface VolumeInfo {

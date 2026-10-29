@@ -1,5 +1,5 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
-import type { CleanupAction, CleanupMethod, CleanupPatternInfo, CleanupRecommendation, CleanupResult, CleanupScanProgress, FileNode, ScanLogEntry, ScanProgress, VolumeInfo } from "./types";
+import type { CleanupAction, CleanupMethod, CleanupPatternInfo, CleanupRecommendation, CleanupResult, CleanupScanProgress, FileNode, RawExtensionStat, ScanLogEntry, ScanProgress, TreemapNode, VolumeInfo } from "./types";
 
 export interface ScanOptions {
   excludePaths?: string[];
@@ -12,7 +12,6 @@ export async function scanDirectory(
   path: string,
   onProgress: Channel<ScanProgress>,
   onLog: Channel<ScanLogEntry>,
-  onTree: Channel<FileNode>,
   options?: ScanOptions,
 ): Promise<FileNode | null> {
   return invoke<FileNode | null>("scan_directory", {
@@ -23,18 +22,17 @@ export async function scanDirectory(
     maxChildrenPerDir: options?.maxChildrenPerDir,
     onProgress,
     onLog,
-    onTree,
   });
 }
 
-export async function scanSubdirectory(
+/** Re-scan a subtree and merge it into the backend tree. Returns the updated root. */
+export async function refreshSubtree(
   path: string,
   onProgress: Channel<ScanProgress>,
   onLog: Channel<ScanLogEntry>,
-  onTree: Channel<FileNode>,
   options?: ScanOptions,
 ): Promise<FileNode | null> {
-  return invoke<FileNode | null>("scan_subdirectory", {
+  return invoke<FileNode | null>("refresh_subtree", {
     path,
     excludePaths: options?.excludePaths,
     excludeNames: options?.excludeNames,
@@ -42,8 +40,29 @@ export async function scanSubdirectory(
     maxChildrenPerDir: options?.maxChildrenPerDir,
     onProgress,
     onLog,
-    onTree,
   });
+}
+
+export async function getNode(path: string): Promise<FileNode | null> {
+  return invoke<FileNode | null>("get_node", { path });
+}
+
+/** Children of each path, in input order (null for unknown paths). */
+export async function getChildren(paths: string[]): Promise<(FileNode[] | null)[]> {
+  return invoke<(FileNode[] | null)[]>("get_children", { paths });
+}
+
+export async function getTreemap(
+  path: string,
+  minRatio: number,
+  maxChildren: number,
+  maxNodes: number,
+): Promise<TreemapNode | null> {
+  return invoke<TreemapNode | null>("get_treemap", { path, minRatio, maxChildren, maxNodes });
+}
+
+export async function getExtensionStats(path: string): Promise<RawExtensionStat[]> {
+  return invoke<RawExtensionStat[]>("get_extension_stats", { path });
 }
 
 export async function cancelScan(): Promise<void> {

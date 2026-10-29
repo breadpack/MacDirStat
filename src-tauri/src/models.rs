@@ -19,28 +19,41 @@ pub struct CleanupAction {
     pub refresh_after: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileNode {
+/// 프론트엔드로 전달되는 단일 노드 정보 (자식은 포함하지 않음)
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeDto {
     pub name: String,
     pub path: String,
     pub size: u64,
     pub is_dir: bool,
-    pub children: Vec<FileNode>,
     pub file_count: u64,
     pub extension: Option<String>,
-    #[serde(default)]
     pub dir_count: u64,
-    #[serde(default)]
     pub modified: Option<u64>,
-    #[serde(default)]
     pub is_symlink: bool,
-    #[serde(default)]
     pub is_hidden: bool,
-    #[serde(default)]
     pub is_readonly: bool,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cleanup_pattern_id: Option<String>,
+    pub child_count: u32,
+}
+
+/// 트리맵 레이아웃용 경량 트리 노드
+#[derive(Debug, Clone, Serialize)]
+pub struct TreemapNode {
+    pub name: String,
+    pub path: String,
+    pub size: u64,
+    pub is_dir: bool,
+    pub extension: Option<String>,
+    pub cleanup_pattern_id: Option<String>,
+    pub children: Vec<TreemapNode>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtensionStat {
+    pub extension: String,
+    pub total_bytes: u64,
+    pub file_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,8 +64,8 @@ pub struct ScanProgress {
     pub total_dirs: u32,
     pub completed_dirs: u32,
     pub total_bytes: u64,
-    /// 디렉토리별 실시간 크기: [(path, size, file_count), ...]
-    pub dir_sizes: Vec<(String, u64, u64)>,
+    /// 백엔드 트리가 갱신될 때마다 증가. 프론트엔드는 값이 바뀌면 필요한 부분을 다시 조회한다.
+    pub tree_version: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,10 +1,9 @@
 <script lang="ts">
   import { openInFinder, moveToTrash, permanentDelete, showGetInfo, openInTerminal, openFile, executeCleanupRecommendation } from "../api";
   import { confirm, message } from "@tauri-apps/plugin-dialog";
-  import { tree, refreshSubtree, partialScanning } from "../stores/scanStore";
+  import { refreshSubtree, partialScanning, reloadTree } from "../stores/scanStore";
   import { isSpecialPath } from "../utils/specialNodes";
   import { cleanupActions, runCleanup } from "../stores/cleanupStore";
-  import { removeNode } from "../utils/treeUtils";
   import type { CleanupAction } from "../types";
   import { formatSize } from "../utils/format";
 
@@ -76,10 +75,7 @@
     }
     try {
       await moveToTrash(path);
-      tree.update((t) => {
-        if (!t) return t;
-        return removeNode(t, path) ?? t;
-      });
+      await reloadTree();
     } catch (e) {
       console.error("Failed to move to trash:", e);
       await message(`Failed to move to trash: ${e}`, { kind: "error" });
@@ -124,10 +120,7 @@
 
     try {
       await permanentDelete(path);
-      tree.update((t) => {
-        if (!t) return t;
-        return removeNode(t, path) ?? t;
-      });
+      await reloadTree();
     } catch (e) {
       console.error("Failed to permanently delete:", e);
       await message(`Failed to delete: ${e}`, { kind: "error" });

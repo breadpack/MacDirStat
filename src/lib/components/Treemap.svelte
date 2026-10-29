@@ -1,7 +1,6 @@
 <script lang="ts">
-  import type { FileNode } from "../types";
-  import { findNode } from "../utils/treeUtils";
-  import { tree, dirSizes, currentVolume } from "../stores/scanStore";
+  import type { TreemapNode } from "../types";
+  import { treeRootPath, slowTreeVersion, currentVolume } from "../stores/scanStore";
   import { selectedPath, hoveredPath, zoomRoot, showFreeSpace, showUnknown } from "../stores/selectionStore";
   import { computeTreemap, type TreemapRect } from "../utils/treemapLayout";
   import { getColor } from "../utils/colorMap";
@@ -11,6 +10,13 @@
   import { highlightedExtension } from "../stores/extensionStore";
   import { formatSize } from "../utils/format";
   import { injectSpecialNodes, isSpecialPath } from "../utils/specialNodes";
+  import { getTreemap } from "../api";
+
+  /** 표시 루트 대비 이 비율보다 작은 노드는 부모의 "(N others)"로 합산 */
+  const MIN_SIZE_RATIO = 0.0001;
+  const MAX_CHILDREN = 200;
+  /** 백엔드가 반환할 최대 노드 수 (큰 디렉토리부터 확장) */
+  const MAX_NODES = 20000;
 
   let canvas: HTMLCanvasElement | undefined = $state();
   let overlayCanvas: HTMLCanvasElement | undefined = $state();
@@ -18,118 +24,57 @@
   let width = $state(600);
   let height = $state(400);
 
-  let rects: TreemapRect[] = $state([]);
-
-  // dirSizes의 throttled 스냅샷 (3초마다 갱신)
-  // $dirSizes를 $effect/$derived에서 직접 읽으면 매 progress 업데이트마다
-  // 트리 전체 복제 + treemap 재계산이 발생하여 OOM 크래시를 유발함
-  let throttledSizes = $state<Map<string, { size: number; file_count: number }>>(new Map());
-  let sizesVersion = $state(0);
-
-  $effect(() => {
-    const timer = setInterval(() => {
-      const current = $dirSizes;
-      if (current.size > 0) {
-        throttledSizes = new Map(current);
-        sizesVersion++;
-      } else if (throttledSizes.size > 0) {
-        throttledSizes = new Map();
-        sizesVersion++;
-      }
-    }, 3000);
-    return () => clearInterval(timer);
-  });
+  // raw: 수천 개의 rect를 deep proxy로 감싸지 않도록
+  let rects: TreemapRect[] = $state.raw([]);
 
   let tooltipVisible = $state(false);
   let tooltipX = $state(0);
   let tooltipY = $state(0);
-  let tooltipNode: FileNode | null = $state(null);
+  let tooltipNode: TreemapNode | null = $state(null);
 
-  /**
-   * dirSizes의 실시간 크기를 트리에 반영한 복사본 생성.
-   * 최적화: dirSizes에 해당 경로가 있는 서브트리만 복제하고,
-   * 나머지는 원본 참조를 그대로 사용하여 불필요한 딥클론 방지.
-   */
-  function applyDirSizes(
-    node: FileNode,
-    sizes: Map<string, { size: number; file_count: number }>,
-    sortedPaths: string[],
-  ): FileNode {
-    const info = sizes.get(node.path);
-    // 이 노드 하위에 영향받는 경로가 없으면 원본 반환 (클론 없음)
-    if (!info && !hasAffectedDescendant(node.path, sortedPaths)) {
-      return node;
-    }
-    if (!node.is_dir) {
-      return info ? { ...node, size: info.size } : node;
-    }
-    const children = node.children.map((c) => applyDirSizes(c, sizes, sortedPaths));
-    const childSum = children.reduce((s, c) => s + c.size, 0);
-    const ownSize = info ? info.size : 0;
-    const totalSize = ownSize + childSum;
-    return { ...node, children, size: totalSize > 0 ? totalSize : node.size };
-  }
+  let layoutRoot: TreemapNode | null = $state.raw(null);
+  let treemapRequest = 0;
 
-  /** Build sorted array of paths for binary search */
-  function buildSortedPaths(sizes: Map<string, { size: number; file_count: number }>): string[] {
-    return [...sizes.keys()].sort();
-  }
-
-  /** path 하위에 영향받는 경로가 있는지 binary search로 빠르게 검사 */
-  function hasAffectedDescendant(path: string, sortedPaths: string[]): boolean {
-    const prefix = path.endsWith("/") ? path : path + "/";
-    let lo = 0, hi = sortedPaths.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (sortedPaths[mid] < prefix) lo = mid + 1; else hi = mid;
-    }
-    return lo < sortedPaths.length && (sortedPaths[lo].startsWith(prefix) || sortedPaths[lo] === path);
-  }
-
-  let displayRoot: FileNode | null = $derived.by(() => {
-    const t = $tree;
-    if (!t) return null;
+  // 백엔드에서 가지치기된 트리맵 트리를 조회 (스캔 중에는 slowTreeVersion 주기로만 갱신)
+  $effect(() => {
+    void $slowTreeVersion;
+    const rootPath = $treeRootPath;
     const zr = $zoomRoot;
-    if (zr) {
-      return findNode(t, zr) ?? t;
+    if (!rootPath) {
+      layoutRoot = null;
+      return;
     }
-    return t;
+    const req = ++treemapRequest;
+    getTreemap(zr ?? rootPath, MIN_SIZE_RATIO, MAX_CHILDREN, MAX_NODES)
+      .then((root) => {
+        if (req !== treemapRequest) return;
+        if (!root && zr) {
+          // zoom 대상이 삭제됨 → 루트로 복귀
+          zoomRoot.set(null);
+          return;
+        }
+        layoutRoot = root;
+      })
+      .catch((e) => console.warn("Failed to load treemap:", e));
   });
 
   $effect(() => {
-    // sizesVersion에 의존하여 스캔 중 3초마다만 재계산 (dirSizes 직접 구독 금지)
-    void sizesVersion;
     const opts = $treemapOptions;
-    if (!displayRoot || width <= 0 || height <= 0) {
+    let root = layoutRoot;
+    if (!root || width <= 0 || height <= 0 || root.size <= 0) {
       rects = [];
       return;
     }
-    // throttled 스냅샷을 사용하여 실시간 크기 반영
-    const sizes = throttledSizes;
-    let root = displayRoot;
-    if (sizes.size > 0) {
-      const sortedPaths = buildSortedPaths(sizes);
-      root = applyDirSizes(displayRoot, sizes, sortedPaths);
-    }
-
-    // skeleton 트리(size=0)는 렌더링 스킵
-    if (root.size <= 0) {
-      rects = [];
-      return;
-    }
-
     // Inject free space / unknown nodes only when viewing scan root (not zoomed)
-    const zr = $zoomRoot;
-    if (!zr) {
+    if (!$zoomRoot) {
       root = injectSpecialNodes(root, $currentVolume, $showFreeSpace, $showUnknown);
     }
-
     rects = computeTreemap(root, width, height, opts.padding);
   });
 
   // Cache cushion ImageData to avoid recomputation when only selection/hover changes
-  let cachedImageData: ImageData | null = $state(null);
-  let cachedRectsRef: TreemapRect[] | null = $state(null);
+  let cachedImageData: ImageData | null = $state.raw(null);
+  let cachedRectsRef: TreemapRect[] | null = $state.raw(null);
   let cachedWidth = $state(0);
   let cachedHeight = $state(0);
 

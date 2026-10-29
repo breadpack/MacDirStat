@@ -1,7 +1,6 @@
 <script lang="ts">
   import { tree } from "../stores/scanStore";
   import { zoomRoot } from "../stores/selectionStore";
-  import type { FileNode } from "../types";
 
   interface Crumb {
     name: string;
@@ -16,28 +15,15 @@
     const result: Crumb[] = [{ name: t.name, path: t.path }];
     if (!zr || zr === t.path) return result;
 
-    // Build path from root to zoom target
-    const parts = findPath(t, zr);
-    if (parts) {
-      result.push(...parts);
+    // Build crumbs from path segments below the root
+    if (!zr.startsWith(t.path)) return result;
+    let current = t.path;
+    for (const part of zr.slice(t.path.length).split("/").filter(Boolean)) {
+      current = current.endsWith("/") ? current + part : current + "/" + part;
+      result.push({ name: part, path: current });
     }
     return result;
   });
-
-  function findPath(node: FileNode, target: string): Crumb[] | null {
-    for (const child of node.children) {
-      if (child.path === target) {
-        return [{ name: child.name, path: child.path }];
-      }
-      if (child.is_dir) {
-        const sub = findPath(child, target);
-        if (sub) {
-          return [{ name: child.name, path: child.path }, ...sub];
-        }
-      }
-    }
-    return null;
-  }
 
   function navigate(path: string) {
     const t = $tree;

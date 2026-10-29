@@ -1,161 +1,15 @@
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
 use tauri::ipc::Channel;
 use tauri::State;
 
+use super::fs_ops::PROTECTED_ROOTS;
 use crate::cleanup_patterns::{
     self, CleanupMethod, CleanupPatternInfo, CleanupRecommendation, CleanupResult,
     CleanupScanProgress, DetectionMethod,
 };
 use crate::config;
-use crate::models::{CleanupAction, CleanupTarget, FileNode, ScanLogEntry, ScanProgress, VolumeInfo};
 use crate::platform;
-use crate::scanner;
+use crate::models::{CleanupAction, CleanupTarget};
 use crate::state::ScanState;
-
-fn build_scan_options(
-    exclude_paths: Option<Vec<String>>,
-    exclude_names: Option<Vec<String>>,
-    follow_symlinks: Option<bool>,
-    max_children_per_dir: Option<usize>,
-) -> scanner::ScanOptions {
-    scanner::ScanOptions {
-        exclude_paths: exclude_paths.unwrap_or_else(|| {
-            scanner::DEFAULT_SKIP_PATHS.iter().map(|s| s.to_string()).collect()
-        }),
-        exclude_names: exclude_names.unwrap_or_else(|| {
-            scanner::DEFAULT_SKIP_NAMES.iter().map(|s| s.to_string()).collect()
-        }),
-        follow_symlinks: follow_symlinks.unwrap_or(false),
-        max_children_per_dir: max_children_per_dir.unwrap_or(200),
-        cross_device: false,
-    }
-}
-
-#[tauri::command]
-pub async fn scan_directory(
-    path: String,
-    exclude_paths: Option<Vec<String>>,
-    exclude_names: Option<Vec<String>>,
-    follow_symlinks: Option<bool>,
-    max_children_per_dir: Option<usize>,
-    on_progress: Channel<ScanProgress>,
-    on_log: Channel<ScanLogEntry>,
-    on_tree: Channel<FileNode>,
-    state: State<'_, ScanState>,
-) -> Result<Option<FileNode>, String> {
-    state.cancel_token.store(false, Ordering::Relaxed);
-
-    let options = build_scan_options(exclude_paths, exclude_names, follow_symlinks, max_children_per_dir);
-    let cancel_token = Arc::clone(&state.cancel_token);
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        scanner::scan_directory(&path, cancel_token, on_progress, on_log, on_tree, options)
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-
-    Ok(result)
-}
-
-#[tauri::command]
-pub async fn scan_subdirectory(
-    path: String,
-    exclude_paths: Option<Vec<String>>,
-    exclude_names: Option<Vec<String>>,
-    follow_symlinks: Option<bool>,
-    max_children_per_dir: Option<usize>,
-    on_progress: Channel<ScanProgress>,
-    on_log: Channel<ScanLogEntry>,
-    on_tree: Channel<FileNode>,
-    state: State<'_, ScanState>,
-) -> Result<Option<FileNode>, String> {
-    scan_directory(path, exclude_paths, exclude_names, follow_symlinks, max_children_per_dir, on_progress, on_log, on_tree, state).await
-}
-
-#[tauri::command]
-pub async fn cancel_scan(state: State<'_, ScanState>) -> Result<(), String> {
-    state.cancel_token.store(true, Ordering::Relaxed);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_system_volumes() -> Result<Vec<VolumeInfo>, String> {
-    Ok(platform::get_volumes())
-}
-
-#[tauri::command]
-pub fn open_in_finder(path: String) -> Result<(), String> {
-    platform::open_in_finder(&path)
-}
-
-#[tauri::command]
-pub fn move_to_trash(path: String) -> Result<(), String> {
-    let canonical = std::path::Path::new(&path)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    let canonical_str = canonical.to_string_lossy();
-    for root in PROTECTED_ROOTS {
-        if canonical_str == *root || canonical_str.starts_with(&format!("{}/", root)) {
-            return Err(format!("Cannot trash protected system path: {}", root));
-        }
-    }
-    if !canonical.exists() {
-        return Err(format!("Path does not exist: {}", path));
-    }
-    trash::delete(&canonical).map_err(|e| e.to_string())
-}
-
-/// Protected system paths that must never be permanently deleted.
-const PROTECTED_ROOTS: &[&str] = &["/", "/System", "/usr", "/bin", "/sbin", "/Users"];
-
-#[tauri::command]
-pub fn permanent_delete(path: String) -> Result<(), String> {
-    // Block deletion of protected system paths
-    let canonical = std::path::Path::new(&path)
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    let canonical_str = canonical.to_string_lossy();
-    for root in PROTECTED_ROOTS {
-        if canonical_str == *root || canonical_str.starts_with(&format!("{}/", root)) {
-            return Err(format!("Cannot delete protected system path: {}", root));
-        }
-    }
-
-    if !canonical.exists() {
-        return Err(format!("Path does not exist: {}", path));
-    }
-    if canonical.is_dir() {
-        std::fs::remove_dir_all(&canonical).map_err(|e| e.to_string())
-    } else {
-        std::fs::remove_file(&canonical).map_err(|e| e.to_string())
-    }
-}
-
-#[tauri::command]
-pub fn show_get_info(path: String) -> Result<(), String> {
-    platform::show_get_info(&path)
-}
-
-#[tauri::command]
-pub fn open_in_terminal(path: String) -> Result<(), String> {
-    platform::open_in_terminal(&path)
-}
-
-#[tauri::command]
-pub fn open_file(path: String) -> Result<(), String> {
-    platform::open_file(&path)
-}
-
-#[tauri::command]
-pub fn check_full_disk_access() -> bool {
-    platform::check_full_disk_access()
-}
-
-#[tauri::command]
-pub fn open_full_disk_access_settings() -> Result<(), String> {
-    platform::open_full_disk_access_settings()
-}
 
 #[tauri::command]
 pub fn get_cleanup_actions() -> Vec<CleanupAction> {
@@ -381,6 +235,7 @@ pub async fn execute_cleanup_recommendation(
     pattern_id: String,
     paths: Vec<String>,
     cleanup_method: Option<CleanupMethod>,
+    state: State<'_, ScanState>,
 ) -> Result<CleanupResult, String> {
     let patterns = cleanup_patterns::all_patterns();
     let pattern = patterns.iter().find(|p| p.id == pattern_id);
@@ -434,6 +289,7 @@ pub async fn execute_cleanup_recommendation(
                     std::fs::remove_file(&canonical).map_err(|e| e.to_string())?;
                 }
 
+                state.remove_path(path_str);
                 total_freed += size;
                 deleted_count += 1;
             }

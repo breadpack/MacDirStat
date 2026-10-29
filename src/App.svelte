@@ -13,8 +13,8 @@
   import CleanupRecommendations from "./lib/components/CleanupRecommendations.svelte";
   import ExtensionList from "./lib/components/ExtensionList.svelte";
   import PanelResizer from "./lib/components/PanelResizer.svelte";
-  import { tree, scanning, scanLogs, scanError, startScan, refreshSubtree, scanWarnErrorCount } from "./lib/stores/scanStore";
-  import { selectedPath, zoomRoot } from "./lib/stores/selectionStore";
+  import { tree, scanning, scanLogs, scanError, startScan, scanWarnErrorCount } from "./lib/stores/scanStore";
+  import { zoomRoot } from "./lib/stores/selectionStore";
   import { showExtensionPanel, extensionColorMap, highlightedExtension } from "./lib/stores/extensionStore";
   import { layoutStore } from "./lib/stores/layoutStore";
   import { setActiveColorMap } from "./lib/utils/colorMap";
@@ -29,13 +29,12 @@
     actionShowInfo,
     actionToggleFreeSpace,
     actionToggleUnknown,
+    actionRunCleanupSlot,
   } from "./lib/utils/actions";
   import CleanupSettings from "./lib/components/CleanupSettings.svelte";
   import SettingsDialog from "./lib/components/SettingsDialog.svelte";
-  import { cleanupActions, loadCleanupActions, runCleanup } from "./lib/stores/cleanupStore";
+  import { loadCleanupActions } from "./lib/stores/cleanupStore";
   import { settings } from "./lib/stores/settingsStore";
-  import { findNode } from "./lib/utils/treeUtils";
-  import { confirm, message } from "@tauri-apps/plugin-dialog";
 
   let fdaChecked = $state(false);
   let fdaGranted = $state(false);
@@ -157,51 +156,6 @@
     fdaGranted = true;
   }
 
-  async function handleCleanupShortcut(slotId: number) {
-    let actions: import("./lib/types").CleanupAction[] = [];
-    cleanupActions.subscribe((a) => (actions = a))();
-    const action = actions.find((a) => a.id === slotId);
-    if (!action || !action.enabled || !action.name.trim() || !action.command.trim()) return;
-
-    let currentPath: string | null = null;
-    selectedPath.subscribe((p) => (currentPath = p))();
-    if (!currentPath) return;
-
-    let currentTree: import("./lib/types").FileNode | null = null;
-    tree.subscribe((t) => (currentTree = t))();
-    if (!currentTree) return;
-
-    const node = findNode(currentTree, currentPath);
-    if (!node) return;
-
-    // Check target compatibility
-    if (action.target === "Files" && node.is_dir) return;
-    if (action.target === "Dirs" && !node.is_dir) return;
-
-    if (action.confirm) {
-      const ok = await confirm(`Run "${action.name}" on "${node.name}"?`, {
-        title: "Run Cleanup",
-        kind: "info",
-        okLabel: "Run",
-        cancelLabel: "Cancel",
-      });
-      if (!ok) return;
-    }
-
-    try {
-      const result = await runCleanup(action.id, node.path, node.name);
-      if (!action.run_in_terminal && result) {
-        console.log(`Cleanup "${action.name}" result:`, result);
-      }
-      if (action.refresh_after && node.is_dir) {
-        await refreshSubtree(node.path);
-      }
-    } catch (e) {
-      console.error(`Cleanup "${action.name}" failed:`, e);
-      await message(`Cleanup failed: ${e}`, { kind: "error" });
-    }
-  }
-
   function handleGlobalKeydown(e: KeyboardEvent) {
     // Cmd+, for settings
     if ((e.metaKey || e.ctrlKey) && e.key === ",") {
@@ -215,7 +169,7 @@
       const digit = e.key.match(/^[0-9]$/);
       if (digit) {
         e.preventDefault();
-        handleCleanupShortcut(parseInt(digit[0]));
+        actionRunCleanupSlot(parseInt(digit[0]));
         return;
       }
     }
@@ -403,77 +357,6 @@
 {/if}
 
 <style>
-  :global(:root),
-  :global([data-theme="dark"]) {
-    --bg-primary: #1a1a1a;
-    --bg-secondary: #1e1e1e;
-    --bg-tertiary: #2d2d2d;
-    --bg-header: #252525;
-    --bg-input: #333;
-    --text-primary: #ccc;
-    --text-secondary: #888;
-    --text-heading: #eee;
-    --text-link: #4A90D9;
-    --border-color: #333;
-    --border-color-strong: #555;
-    --accent-color: #4A90D9;
-    --hover-bg: #3a3a3a;
-    --selection-bg: #264f78;
-    --overlay-bg: rgba(0, 0, 0, 0.6);
-    --tooltip-bg: rgba(30, 30, 30, 0.95);
-    --shadow-color: rgba(0, 0, 0, 0.5);
-    --bar-bg: #222;
-    --danger-color: #e55;
-    --danger-hover-bg: #4a2020;
-    --danger-hover-color: #f88;
-    --success-color: #2a7;
-    --success-hover: #3b8;
-  }
-
-  :global([data-theme="light"]) {
-    --bg-primary: #f5f5f5;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #e8e8e8;
-    --bg-header: #eaeaea;
-    --bg-input: #fff;
-    --text-primary: #333;
-    --text-secondary: #666;
-    --text-heading: #222;
-    --text-link: #2870BD;
-    --border-color: #ddd;
-    --border-color-strong: #bbb;
-    --accent-color: #2870BD;
-    --hover-bg: #d8d8d8;
-    --selection-bg: #b3d4fc;
-    --overlay-bg: rgba(0, 0, 0, 0.3);
-    --tooltip-bg: rgba(255, 255, 255, 0.95);
-    --shadow-color: rgba(0, 0, 0, 0.15);
-    --bar-bg: #ddd;
-    --danger-color: #c33;
-    --danger-hover-bg: #fdd;
-    --danger-hover-color: #a00;
-    --success-color: #2a7;
-    --success-hover: #3b8;
-  }
-
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg-primary, #1a1a1a);
-    color: var(--text-primary, #ccc);
-    overflow: hidden;
-    height: 100vh;
-  }
-
-  :global(*) {
-    box-sizing: border-box;
-  }
-
-  :global(#app) {
-    height: 100vh;
-  }
-
   .app {
     display: flex;
     flex-direction: column;

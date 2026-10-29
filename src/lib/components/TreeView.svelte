@@ -1,37 +1,16 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { FileNode, FlatTreeRow } from "../types";
-  import { tree, progress, dirSizes, scanning } from "../stores/scanStore";
+  import { tree, treeRootPath, treeVersion } from "../stores/scanStore";
   import { selectedPath } from "../stores/selectionStore";
   import { sortState, type SortState } from "../stores/columnStore";
   import { getParentPath, recordChildVisit, getLastChild } from "../stores/navigationStore";
   import { isSpecialPath } from "../utils/specialNodes";
+  import { topNChildren } from "../utils/treeSort";
+  import { getChildren } from "../api";
   import TreeRow from "./TreeRow.svelte";
   import TreeColumnHeader from "./TreeColumnHeader.svelte";
   import ContextMenu from "./ContextMenu.svelte";
-
-  // dirSizes를 3초마다 스냅샷 → 정렬용 (너무 자주 재정렬하면 스크롤이 깨짐)
-  let sortSizes = $state<Map<string, { size: number; file_count: number }>>(new Map());
-
-  $effect(() => {
-    if (!$scanning) {
-      // When not scanning, sync once and stop
-      const current = $dirSizes;
-      if (current.size > 0) {
-        sortSizes = new Map(current);
-      } else if (sortSizes.size > 0) {
-        sortSizes = new Map();
-      }
-      return;
-    }
-    const timer = setInterval(() => {
-      const current = $dirSizes;
-      if (current.size > 0) {
-        sortSizes = new Map(current);
-      }
-    }, 3000);
-    return () => clearInterval(timer);
-  });
 
   const ROW_HEIGHT = 24;
   const OVERSCAN = 10;
@@ -61,136 +40,73 @@
     return unsub;
   });
 
+  // 펼쳐진 디렉토리의 자식 목록 캐시 (백엔드 조회 결과). 트리 버전이 바뀌면 전부 다시 조회한다.
+  let childrenCache = $state.raw(new Map<string, FileNode[]>());
+  let cacheVersion = -1;
+  let childrenRequest = 0;
+  let appliedRequest = 0;
+
+  $effect(() => {
+    const version = $treeVersion;
+    const rootPath = $treeRootPath;
+    const expanded = expandedPaths;
+    untrack(() => loadChildren(rootPath, expanded, version));
+  });
+
+  async function loadChildren(rootPath: string | null, expanded: Set<string>, version: number) {
+    if (!rootPath) {
+      childrenCache = new Map();
+      cacheVersion = -1;
+      return;
+    }
+    const stale = version !== cacheVersion;
+    const paths = stale ? [...expanded] : [...expanded].filter((p) => !childrenCache.has(p));
+    if (paths.length === 0) return;
+    const req = ++childrenRequest;
+    try {
+      const results = await getChildren(paths);
+      // 더 최신 요청이 이미 반영됐으면 무시 (요청이 겹쳐도 갱신이 멈추지 않도록 최신만 버리지 않음)
+      if (req < appliedRequest) return;
+      appliedRequest = req;
+      const next = stale ? new Map<string, FileNode[]>() : new Map(childrenCache);
+      paths.forEach((p, i) => {
+        const children = results[i];
+        if (children) next.set(p, children);
+      });
+      cacheVersion = version;
+      childrenCache = next;
+    } catch (e) {
+      console.warn("Failed to load children:", e);
+    }
+  }
+
   let flatRows: FlatTreeRow[] = $derived.by(() => {
     const t = $tree;
     if (!t) return [];
-    return flatten(t, sortSizes, currentSortState);
+    return flatten(t, childrenCache, currentSortState);
   });
 
   const MAX_VISIBLE_CHILDREN = 500;
-
-  function getEffectiveSize(node: FileNode, sizes: Map<string, { size: number; file_count: number }>): number {
-    const info = sizes.get(node.path);
-    return info ? info.size : node.size;
-  }
-
-  function compareNodes(a: FileNode, b: FileNode, sort: SortState, sizes: Map<string, { size: number; file_count: number }>): number {
-    // 디렉토리를 항상 파일보다 먼저 표시
-    if (a.is_dir !== b.is_dir) {
-      return a.is_dir ? -1 : 1;
-    }
-
-    let result = 0;
-    switch (sort.columnId) {
-      case "name":
-        result = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-        break;
-      case "size":
-        result = getEffectiveSize(a, sizes) - getEffectiveSize(b, sizes);
-        break;
-      case "files":
-        result = a.file_count - b.file_count;
-        break;
-      case "subdirs":
-        result = a.dir_count - b.dir_count;
-        break;
-      case "modified":
-        result = (a.modified ?? 0) - (b.modified ?? 0);
-        break;
-      default:
-        result = getEffectiveSize(a, sizes) - getEffectiveSize(b, sizes);
-    }
-    return sort.direction === "desc" ? -result : result;
-  }
-
-  function quickSelectInPlace<T>(arr: T[], lo: number, hi: number, k: number, compare: (a: T, b: T) => number): void {
-    while (lo < hi) {
-      const pivotIdx = lo + ((hi - lo) >> 1);
-      const pivot = arr[pivotIdx];
-      // Move pivot to end
-      [arr[pivotIdx], arr[hi]] = [arr[hi], arr[pivotIdx]];
-      let storeIdx = lo;
-      for (let i = lo; i < hi; i++) {
-        if (compare(arr[i], pivot) < 0) {
-          [arr[storeIdx], arr[i]] = [arr[i], arr[storeIdx]];
-          storeIdx++;
-        }
-      }
-      [arr[storeIdx], arr[hi]] = [arr[hi], arr[storeIdx]];
-      if (storeIdx === k) return;
-      if (storeIdx < k) lo = storeIdx + 1;
-      else hi = storeIdx - 1;
-    }
-  }
-
-  function quickSelectTop<T>(arr: T[], k: number, compare: (a: T, b: T) => number): T[] {
-    if (k >= arr.length) return arr;
-    const work = arr.slice();
-    quickSelectInPlace(work, 0, work.length - 1, k, compare);
-    return work.slice(0, k);
-  }
-
-  /**
-   * Partial sort: 대량의 children에서 상위 N개만 정렬하여 반환.
-   * 전체 정렬(O(n log n)) 대신 부분 선택(O(n + k log k)) 사용.
-   */
-  function topNChildren(
-    children: FileNode[],
-    n: number,
-    sort: SortState,
-    sizes: Map<string, { size: number; file_count: number }>,
-  ): FileNode[] {
-    if (children.length <= n) {
-      return [...children].sort((a, b) => compareNodes(a, b, sort, sizes));
-    }
-    // 디렉토리 우선 분리 (소수이므로 빠름)
-    const dirs: FileNode[] = [];
-    const files: FileNode[] = [];
-    for (const c of children) {
-      (c.is_dir ? dirs : files).push(c);
-    }
-    // 각 그룹을 정렬 (디렉토리는 보통 소수)
-    dirs.sort((a, b) => compareNodes(a, b, sort, sizes));
-    const remaining = n - dirs.length;
-    if (remaining <= 0) {
-      return dirs.slice(0, n);
-    }
-    if (files.length <= remaining) {
-      // All files fit, no truncation needed
-      files.sort((a, b) => compareNodes(a, b, sort, sizes));
-      return [...dirs, ...files];
-    }
-    if (files.length <= remaining * 3) {
-      // Small enough, full sort is fine
-      files.sort((a, b) => compareNodes(a, b, sort, sizes));
-      return [...dirs, ...files.slice(0, remaining)];
-    }
-    // For large arrays, use partial sort via quickselect
-    const cmp = (a: FileNode, b: FileNode) => compareNodes(a, b, sort, sizes);
-    const topFiles = quickSelectTop(files, remaining, cmp);
-    topFiles.sort(cmp); // sort only the top N
-    return [...dirs, ...topFiles];
-  }
 
   /**
    * Iterative flatten: 재귀 대신 명시적 스택 사용으로 깊은 트리에서의
    * 스택 오버플로를 방지하고, 대량 children에 partial sort 적용.
    */
-  function flatten(root: FileNode, sizes: Map<string, { size: number; file_count: number }>, sort: SortState): FlatTreeRow[] {
+  function flatten(root: FileNode, cache: Map<string, FileNode[]>, sort: SortState): FlatTreeRow[] {
     const rows: FlatTreeRow[] = [];
     // stack: [node, depth]
     const stack: [FileNode, number][] = [[root, 0]];
 
     while (stack.length > 0) {
       const [node, depth] = stack.pop()!;
-      const hasChildren = node.is_dir && node.children.length > 0;
+      const hasChildren = node.is_dir && node.child_count > 0;
       const expanded = expandedPaths.has(node.path);
-      const displaySize = getEffectiveSize(node, sizes);
-      rows.push({ node, depth, expanded, hasChildren, displaySize });
+      rows.push({ node, depth, expanded, hasChildren, displaySize: node.size });
 
-      if (expanded && hasChildren) {
-        const total = node.children.length;
-        const sorted = topNChildren(node.children, MAX_VISIBLE_CHILDREN, sort, sizes);
+      const children = expanded && hasChildren ? cache.get(node.path) : undefined;
+      if (children) {
+        const total = children.length;
+        const sorted = topNChildren(children, MAX_VISIBLE_CHILDREN, sort);
 
         // 스택은 LIFO이므로 역순으로 push해야 순서대로 출력됨
         if (total > MAX_VISIBLE_CHILDREN) {
@@ -200,7 +116,8 @@
             path: node.path + "/__truncated__",
             size: 0,
             is_dir: false,
-            children: [],
+            child_count: 0,
+            cleanup_pattern_id: null,
             file_count: 0,
             extension: null,
             dir_count: 0,
@@ -237,11 +154,8 @@
   );
   let visibleRows = $derived(flatRows.slice(startIndex, endIndex));
 
-  // 스캔 중이면 progress.total_bytes, 아니면 트리 크기
-  // sortSizes (throttled)를 사용하여 $dirSizes 직접 구독을 회피 (OOM 방지)
-  let rootSize = $derived(
-    sortSizes.size > 0 ? $progress.total_bytes : ($tree?.size ?? 0)
-  );
+  // 백엔드 트리는 스캔 중에도 실시간으로 크기가 채워지므로 루트 크기를 그대로 사용
+  let rootSize = $derived($tree?.size ?? 0);
 
   function handleScroll() {
     if (containerEl) {
@@ -283,15 +197,23 @@
       }
 
       if (changed) {
+        // 자식 목록은 비동기로 로드되므로, 행이 나타나면 스크롤한다
+        pendingScrollPath = sp;
         expandedPaths = next;
-        // expand 후 다음 프레임에서 스크롤 (flatRows가 재계산된 후)
-        requestAnimationFrame(() => {
-          if (!containerEl) return;
-          const newIdx = getPathIndex(sp);
-          if (newIdx < 0) return;
-          scrollToIdx(newIdx);
-        });
       }
+    });
+  });
+
+  let pendingScrollPath: string | null = null;
+
+  $effect(() => {
+    void flatRows;
+    untrack(() => {
+      if (!pendingScrollPath || !containerEl) return;
+      const idx = getPathIndex(pendingScrollPath);
+      if (idx < 0) return;
+      pendingScrollPath = null;
+      scrollToIdx(idx);
     });
   });
 

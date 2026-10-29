@@ -57,11 +57,8 @@
       }
       return sortDir === "desc" ? -result : result;
     });
-    // Assign colors from the color map
-    for (const s of sorted) {
-      s.color = colorMap.get(s.extension) ?? "#666";
-    }
-    return sorted;
+    // Assign colors from the color map (copy: mutating $state inside $derived is forbidden)
+    return sorted.map((s) => ({ ...s, color: colorMap.get(s.extension) ?? "#666" }));
   });
 
   // Virtual scrolling
