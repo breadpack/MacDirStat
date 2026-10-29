@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
+/// 노드 식별자. FILE_BIT가 켜져 있으면 하위 31비트가 files 인덱스, 아니면 dirs 인덱스.
 pub type NodeId = u32;
 pub const NO_NODE: NodeId = u32::MAX;
+pub const FILE_BIT: u32 = 1 << 31;
 
 pub const FLAG_DIR: u8 = 1;
 pub const FLAG_SYMLINK: u8 = 2;
@@ -14,33 +16,168 @@ pub const FLAG_REMOVED: u8 = 32;
 /// 경로 세그먼트로 사용되는 합산 노드의 가상 이름
 pub const OTHERS_SEGMENT: &str = "__others__";
 
-/// 64바이트 고정 크기 노드. 경로는 저장하지 않고 parent 체인으로 계산한다.
+/// 디렉토리 노드 (64바이트). 경로는 저장하지 않고 parent 체인으로 계산한다.
 /// 자식은 arena 내 연속 구간(dirs / files)으로 표현하여 노드별 Vec 할당을 없앤다.
 #[derive(Clone, Copy, Debug)]
-pub struct Node {
+pub struct DirNode {
     pub size: u64,
     pub file_count: u64,
     /// unix seconds, 0 = unknown
     pub modified: u64,
     pub parent: NodeId,
     pub name_off: u32,
-    pub dirs_start: NodeId,
+    /// dirs 인덱스
+    pub dirs_start: u32,
     pub dirs_len: u32,
-    pub files_start: NodeId,
+    /// files 인덱스 (FILE_BIT 없음)
+    pub files_start: u32,
     pub files_len: u32,
     /// 하위 디렉토리 총 개수
     pub dir_count: u32,
-    /// 0 = 없음, 그 외 exts 인덱스 + 1
-    pub ext: u32,
     pub name_len: u16,
     /// 0 = 없음, 그 외 cleanup pattern 인덱스 + 1
     pub cleanup: u16,
     pub flags: u8,
 }
 
-impl Node {
-    fn new(parent: NodeId, name_off: u32, name_len: u16, flags: u8) -> Self {
-        Self {
+/// 파일 노드 (32바이트). 노드 대부분이 파일이므로 디렉토리 전용 필드를 갖지 않는다.
+#[derive(Clone, Copy, Debug)]
+pub struct FileNode {
+    pub size: u64,
+    pub parent: NodeId,
+    pub name_off: u32,
+    /// unix seconds, 0 = unknown
+    pub modified: u32,
+    /// 일반 파일: 0 = 확장자 없음, 그 외 exts 인덱스 + 1.
+    /// FLAG_OTHERS 노드: 합산된 파일 수.
+    pub ext: u32,
+    pub name_len: u16,
+    pub flags: u8,
+}
+
+/// 스캔 결과 전체를 담는 arena. dirs[0]이 루트.
+pub struct ScanTree {
+    pub(crate) dirs: Vec<DirNode>,
+    pub(crate) files: Vec<FileNode>,
+    pub(crate) names: Vec<u8>,
+    pub(crate) exts: Vec<Box<str>>,
+    ext_index: HashMap<Box<str>, u32>,
+    pub(crate) cleanup_ids: Vec<&'static str>,
+    pub(crate) root_path: String,
+    /// 더 이상 도달할 수 없는 노드 수 (삭제/서브트리 교체로 발생)
+    pub(crate) garbage: usize,
+}
+
+#[inline]
+pub fn is_file_id(id: NodeId) -> bool {
+    id != NO_NODE && id & FILE_BIT != 0
+}
+
+#[inline]
+pub fn file_id(index: u32) -> NodeId {
+    index | FILE_BIT
+}
+
+pub(crate) fn clamp_secs(secs: u64) -> u32 {
+    secs.min(u32::MAX as u64) as u32
+}
+
+impl ScanTree {
+    pub fn new(root_path: &str, root_name: &str, root_flags: u8, cleanup_ids: Vec<&'static str>) -> Self {
+        let mut tree = Self {
+            dirs: Vec::new(),
+            files: Vec::new(),
+            names: Vec::new(),
+            exts: Vec::new(),
+            ext_index: HashMap::new(),
+            cleanup_ids,
+            root_path: root_path.to_string(),
+            garbage: 0,
+        };
+        tree.push_dir(root_name, NO_NODE, root_flags);
+        tree
+    }
+
+    pub fn root_path(&self) -> &str {
+        &self.root_path
+    }
+
+    /// 전체 노드 수 (디렉토리 + 파일)
+    pub fn len(&self) -> usize {
+        self.dirs.len() + self.files.len()
+    }
+
+    pub fn dir_len(&self) -> usize {
+        self.dirs.len()
+    }
+
+    #[inline]
+    pub fn dir(&self, id: NodeId) -> &DirNode {
+        debug_assert!(!is_file_id(id));
+        &self.dirs[id as usize]
+    }
+
+    #[inline]
+    pub fn dir_mut(&mut self, id: NodeId) -> &mut DirNode {
+        debug_assert!(!is_file_id(id));
+        &mut self.dirs[id as usize]
+    }
+
+    #[inline]
+    pub fn file(&self, id: NodeId) -> &FileNode {
+        &self.files[(id & !FILE_BIT) as usize]
+    }
+
+    #[inline]
+    pub fn file_mut(&mut self, id: NodeId) -> &mut FileNode {
+        &mut self.files[(id & !FILE_BIT) as usize]
+    }
+
+    #[inline]
+    pub fn is_dir(&self, id: NodeId) -> bool {
+        !is_file_id(id)
+    }
+
+    #[inline]
+    pub fn flags(&self, id: NodeId) -> u8 {
+        if is_file_id(id) { self.file(id).flags } else { self.dir(id).flags }
+    }
+
+    #[inline]
+    pub fn has(&self, id: NodeId, flag: u8) -> bool {
+        self.flags(id) & flag != 0
+    }
+
+    pub fn set_flag(&mut self, id: NodeId, flag: u8) {
+        if is_file_id(id) { self.file_mut(id).flags |= flag } else { self.dir_mut(id).flags |= flag }
+    }
+
+    #[inline]
+    pub fn parent(&self, id: NodeId) -> NodeId {
+        if is_file_id(id) { self.file(id).parent } else { self.dir(id).parent }
+    }
+
+    #[inline]
+    pub fn size(&self, id: NodeId) -> u64 {
+        if is_file_id(id) { self.file(id).size } else { self.dir(id).size }
+    }
+
+    pub fn file_count(&self, id: NodeId) -> u64 {
+        if !is_file_id(id) {
+            return self.dir(id).file_count;
+        }
+        let f = self.file(id);
+        if f.flags & FLAG_OTHERS != 0 { f.ext as u64 } else { 1 }
+    }
+
+    pub fn modified(&self, id: NodeId) -> u64 {
+        if is_file_id(id) { self.file(id).modified as u64 } else { self.dir(id).modified }
+    }
+
+    pub fn push_dir(&mut self, name: &str, parent: NodeId, flags: u8) -> NodeId {
+        let (name_off, name_len) = self.push_name(name);
+        let id = self.dirs.len() as NodeId;
+        self.dirs.push(DirNode {
             size: 0,
             file_count: 0,
             modified: 0,
@@ -51,73 +188,17 @@ impl Node {
             files_start: 0,
             files_len: 0,
             dir_count: 0,
-            ext: 0,
             name_len,
             cleanup: 0,
-            flags,
-        }
+            flags: flags | FLAG_DIR,
+        });
+        id
     }
 
-    #[inline]
-    pub fn has(&self, flag: u8) -> bool {
-        self.flags & flag != 0
-    }
-
-    #[inline]
-    pub fn is_dir(&self) -> bool {
-        self.has(FLAG_DIR)
-    }
-}
-
-/// 스캔 결과 전체를 담는 arena. 노드 0이 루트.
-pub struct ScanTree {
-    pub(crate) nodes: Vec<Node>,
-    pub(crate) names: Vec<u8>,
-    pub(crate) exts: Vec<Box<str>>,
-    ext_index: HashMap<Box<str>, u32>,
-    pub(crate) cleanup_ids: Vec<&'static str>,
-    pub(crate) root_path: String,
-    /// 더 이상 도달할 수 없는 노드 수 (삭제/서브트리 교체로 발생)
-    pub(crate) garbage: usize,
-}
-
-impl ScanTree {
-    pub fn new(root_path: &str, root_name: &str, root_flags: u8, cleanup_ids: Vec<&'static str>) -> Self {
-        let mut tree = Self {
-            nodes: Vec::new(),
-            names: Vec::new(),
-            exts: Vec::new(),
-            ext_index: HashMap::new(),
-            cleanup_ids,
-            root_path: root_path.to_string(),
-            garbage: 0,
-        };
-        tree.push_node(root_name, NO_NODE, root_flags | FLAG_DIR);
-        tree
-    }
-
-    pub fn root_path(&self) -> &str {
-        &self.root_path
-    }
-
-    pub fn len(&self) -> usize {
-        self.nodes.len()
-    }
-
-    #[inline]
-    pub fn node(&self, id: NodeId) -> &Node {
-        &self.nodes[id as usize]
-    }
-
-    #[inline]
-    pub fn node_mut(&mut self, id: NodeId) -> &mut Node {
-        &mut self.nodes[id as usize]
-    }
-
-    pub fn push_node(&mut self, name: &str, parent: NodeId, flags: u8) -> NodeId {
-        let (off, len) = self.push_name(name);
-        let id = self.nodes.len() as NodeId;
-        self.nodes.push(Node::new(parent, off, len, flags));
+    pub fn push_file(&mut self, name: &str, parent: NodeId, flags: u8) -> NodeId {
+        let (name_off, name_len) = self.push_name(name);
+        let id = file_id(self.files.len() as u32);
+        self.files.push(FileNode { size: 0, parent, name_off, modified: 0, ext: 0, name_len, flags: flags & !FLAG_DIR });
         id
     }
 
@@ -129,9 +210,15 @@ impl ScanTree {
     }
 
     pub fn name(&self, id: NodeId) -> &str {
-        let n = self.node(id);
-        let start = n.name_off as usize;
-        std::str::from_utf8(&self.names[start..start + n.name_len as usize]).unwrap_or("")
+        let (off, len) = if is_file_id(id) {
+            let f = self.file(id);
+            (f.name_off, f.name_len)
+        } else {
+            let d = self.dir(id);
+            (d.name_off, d.name_len)
+        };
+        let start = off as usize;
+        std::str::from_utf8(&self.names[start..start + len as usize]).unwrap_or("")
     }
 
     pub fn intern_ext(&mut self, ext: &str) -> u32 {
@@ -146,29 +233,44 @@ impl ScanTree {
     }
 
     pub fn ext(&self, id: NodeId) -> Option<&str> {
-        match self.node(id).ext {
-            0 => None,
-            e => self.exts.get(e as usize - 1).map(|s| s.as_ref()),
+        if !is_file_id(id) {
+            return None;
         }
+        let f = self.file(id);
+        if f.flags & FLAG_OTHERS != 0 || f.ext == 0 {
+            return None;
+        }
+        self.exts.get(f.ext as usize - 1).map(|s| s.as_ref())
     }
 
     pub fn cleanup_id(&self, id: NodeId) -> Option<&'static str> {
-        match self.node(id).cleanup {
+        if is_file_id(id) {
+            return None;
+        }
+        match self.dir(id).cleanup {
             0 => None,
             c => self.cleanup_ids.get(c as usize - 1).copied(),
         }
     }
 
-    /// 삭제되지 않은 자식 (디렉토리 먼저, 이후 파일)
+    /// 삭제되지 않은 자식 (디렉토리 먼저, 이후 파일). 파일 id에 대해서는 비어 있다.
     pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
-        let n = self.node(id);
-        let dirs = n.dirs_start..n.dirs_start + n.dirs_len;
-        let files = n.files_start..n.files_start + n.files_len;
-        dirs.chain(files).filter(move |&c| !self.node(c).has(FLAG_REMOVED))
+        let (dirs, files) = if is_file_id(id) {
+            (0..0, 0..0)
+        } else {
+            let d = self.dir(id);
+            (d.dirs_start..d.dirs_start + d.dirs_len, d.files_start..d.files_start + d.files_len)
+        };
+        dirs.filter(move |&c| self.dirs[c as usize].flags & FLAG_REMOVED == 0)
+            .chain(files.filter(move |&c| self.files[c as usize].flags & FLAG_REMOVED == 0).map(file_id))
     }
 
     pub fn child_count(&self, id: NodeId) -> u32 {
         self.children(id).count() as u32
+    }
+
+    fn segment(&self, id: NodeId) -> &str {
+        if self.has(id, FLAG_OTHERS) { OTHERS_SEGMENT } else { self.name(id) }
     }
 
     /// 루트부터 id까지의 절대 경로
@@ -177,20 +279,18 @@ impl ScanTree {
         let mut cur = id;
         while cur != 0 && cur != NO_NODE {
             chain.push(cur);
-            cur = self.node(cur).parent;
+            cur = self.parent(cur);
         }
         let mut path = self.root_path.clone();
         for &c in chain.iter().rev() {
-            let seg = if self.node(c).has(FLAG_OTHERS) { OTHERS_SEGMENT } else { self.name(c) };
-            push_segment(&mut path, seg);
+            push_segment(&mut path, self.segment(c));
         }
         path
     }
 
     pub fn child_path(&self, parent_path: &str, child: NodeId) -> String {
         let mut path = parent_path.to_string();
-        let seg = if self.node(child).has(FLAG_OTHERS) { OTHERS_SEGMENT } else { self.name(child) };
-        push_segment(&mut path, seg);
+        push_segment(&mut path, self.segment(child));
         path
     }
 
@@ -207,19 +307,16 @@ impl ScanTree {
         }
         let mut cur: NodeId = 0;
         for seg in rest.split('/').filter(|s| !s.is_empty()) {
-            cur = self.children(cur).find(|&c| {
-                let n = self.node(c);
-                if n.has(FLAG_OTHERS) { seg == OTHERS_SEGMENT } else { self.name(c) == seg }
-            })?;
+            cur = self.children(cur).find(|&c| self.segment(c) == seg)?;
         }
         Some(cur)
     }
 
-    /// id 자신과 모든 조상에 크기/파일 수를 더한다.
-    pub fn add_to_ancestors(&mut self, id: NodeId, size: u64, files: u64, modified: u64) {
-        let mut cur = id;
+    /// 디렉토리 id 자신과 모든 조상에 크기/파일 수를 더한다.
+    pub fn add_to_ancestors(&mut self, dir: NodeId, size: u64, files: u64, modified: u64) {
+        let mut cur = dir;
         while cur != NO_NODE {
-            let n = self.node_mut(cur);
+            let n = self.dir_mut(cur);
             n.size += size;
             n.file_count += files;
             if modified > n.modified {
@@ -229,32 +326,34 @@ impl ScanTree {
         }
     }
 
-    /// 루트를 제외한 노드 중 디렉토리만 있는 상태(skeleton)에서 하위 디렉토리 수 집계.
-    /// 자식 id는 항상 부모 id보다 크므로 역순 순회로 bottom-up 계산된다.
+    /// 하위 디렉토리 수 집계. 자식 id는 항상 부모 id보다 크므로 역순 순회로 bottom-up 계산된다.
     pub fn compute_dir_counts(&mut self) {
-        for i in (1..self.nodes.len()).rev() {
-            let n = self.nodes[i];
-            if n.is_dir() && !n.has(FLAG_REMOVED) && n.parent != NO_NODE {
-                self.nodes[n.parent as usize].dir_count += 1 + n.dir_count;
+        for i in (1..self.dirs.len()).rev() {
+            let d = self.dirs[i];
+            if d.flags & FLAG_REMOVED == 0 && d.parent != NO_NODE {
+                self.dirs[d.parent as usize].dir_count += 1 + d.dir_count;
             }
         }
     }
 
     /// 서브트리(자신 포함) 노드 수
     pub fn subtree_len(&self, id: NodeId) -> usize {
+        if is_file_id(id) {
+            return 1;
+        }
         let mut count = 0;
         let mut stack = vec![id];
         while let Some(cur) = stack.pop() {
-            count += 1;
-            let n = self.node(cur);
-            stack.extend(n.dirs_start..n.dirs_start + n.dirs_len);
-            count += n.files_len as usize;
+            let d = self.dir(cur);
+            count += 1 + d.files_len as usize;
+            stack.extend(d.dirs_start..d.dirs_start + d.dirs_len);
         }
         count
     }
 
     pub fn shrink_to_fit(&mut self) {
-        self.nodes.shrink_to_fit();
+        self.dirs.shrink_to_fit();
+        self.files.shrink_to_fit();
         self.names.shrink_to_fit();
     }
 }

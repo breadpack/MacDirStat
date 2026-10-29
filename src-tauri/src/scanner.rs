@@ -84,7 +84,7 @@ struct DirIndex {
 
 impl DirIndex {
     fn from_tree(tree: &ScanTree) -> Self {
-        let n = tree.len();
+        let n = tree.dir_len();
         let mut idx = DirIndex {
             root: tree.root_path().to_string(),
             parent: Vec::with_capacity(n),
@@ -92,7 +92,7 @@ impl DirIndex {
             name_len: Vec::with_capacity(n),
             names: tree.names.clone(),
         };
-        for node in &tree.nodes {
+        for node in &tree.dirs {
             idx.parent.push(node.parent);
             idx.name_off.push(node.name_off);
             idx.name_len.push(node.name_len);
@@ -162,7 +162,7 @@ pub fn scan_into(
         return false;
     };
 
-    let total_dirs = skeleton.len() as u32;
+    let total_dirs = skeleton.dir_len() as u32;
     send_log(reporter, "info", &format!("Phase 1 complete: {} directories found", total_dirs), root);
     let index = DirIndex::from_tree(&skeleton);
     *write_lock(slot) = Some(skeleton);
@@ -248,7 +248,7 @@ pub fn scan_into(
     let mut guard = write_lock(slot);
     let Some(tree) = guard.as_mut() else { return false };
     tree.shrink_to_fit();
-    let root_node = tree.node(0);
+    let root_node = tree.dir(0);
     send_log(
         reporter,
         "info",

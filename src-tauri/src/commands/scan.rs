@@ -111,7 +111,7 @@ pub async fn refresh_subtree(
         let mut guard = write_lock(&main);
         let tree = guard.as_mut()?;
         let target = tree.resolve(&path)?;
-        if !tree.node(target).is_dir() {
+        if !tree.is_dir(target) {
             return None;
         }
         tree.graft(target, &sub);

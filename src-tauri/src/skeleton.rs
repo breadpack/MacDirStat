@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::cleanup_patterns::{self, CleanupPattern};
 use crate::scanner::{is_ignorable_error, make_progress, send_log, should_skip_dynamic, ScanOptions, ScanReporter};
 use crate::models::ScanProgress;
-use crate::tree::{NodeId, ScanTree, FLAG_DIR, FLAG_HIDDEN};
+use crate::tree::{NodeId, ScanTree, FLAG_HIDDEN};
 
 /// Phase 1: 디렉토리 구조만 스캔하여 arena 트리를 만든다.
 /// 한 디렉토리의 하위 디렉토리들은 연속으로 push되므로 자식 구간이 연속성을 가진다.
@@ -57,7 +57,7 @@ pub fn build_skeleton(
             }
         };
 
-        let dirs_start = tree.len() as NodeId;
+        let dirs_start = tree.dir_len() as u32;
         child_frames.clear();
 
         for entry in entries.flatten() {
@@ -106,7 +106,7 @@ pub fn build_skeleton(
             }
 
             let child_name = entry.file_name().to_string_lossy().to_string();
-            let flags = FLAG_DIR | if child_name.starts_with('.') { FLAG_HIDDEN } else { 0 };
+            let flags = if child_name.starts_with('.') { FLAG_HIDDEN } else { 0 };
             let cleanup = scan_pattern_map.get(&child_name).and_then(|indices| {
                 indices
                     .iter()
@@ -114,14 +114,14 @@ pub fn build_skeleton(
                     .map(|&i| i as u16 + 1)
             });
 
-            let child_id = tree.push_node(&child_name, node_id, flags);
+            let child_id = tree.push_dir(&child_name, node_id, flags);
             if let Some(c) = cleanup {
-                tree.node_mut(child_id).cleanup = c;
+                tree.dir_mut(child_id).cleanup = c;
             }
             child_frames.push((child_path, child_id));
         }
 
-        let n = tree.node_mut(node_id);
+        let n = tree.dir_mut(node_id);
         n.dirs_start = dirs_start;
         n.dirs_len = child_frames.len() as u32;
 

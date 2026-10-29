@@ -190,6 +190,37 @@ fn extension_stats_cover_all_files() {
     assert_eq!(stats.iter().map(|s| s.total_bytes).sum::<u64>(), tree.root_dto().size);
 }
 
+#[test]
+fn node_layout_stays_compact() {
+    assert_eq!(std::mem::size_of::<super::arena::FileNode>(), 32);
+    assert_eq!(std::mem::size_of::<super::arena::DirNode>(), 64);
+}
+
+#[test]
+fn remove_single_file_and_others_node() {
+    let dir = fixture();
+    let mut tree = scan(dir.path(), 3);
+    let a_path = format!("{}/a", tree.root_path());
+    let before = tree.node_dto(&a_path).unwrap();
+
+    let big = tree.node_dto(&format!("{a_path}/big.bin")).unwrap();
+    assert!(tree.remove(tree.resolve(&big.path).unwrap()));
+    let others_path = format!("{a_path}/__others__");
+    let others = tree.node_dto(&others_path).unwrap();
+    assert!(tree.remove(tree.resolve(&others_path).unwrap()));
+
+    let after = tree.node_dto(&a_path).unwrap();
+    assert_eq!(after.size, before.size - big.size - others.size);
+    assert_eq!(after.file_count, before.file_count - 1 - others.file_count);
+    assert_eq!(after.child_count, before.child_count - 2);
+
+    // 압축 후에도 남은 파일과 확장자가 유지된다
+    tree.compact();
+    let children = tree.children_dtos(&a_path).unwrap();
+    assert_eq!(children.len() as u32, after.child_count);
+    assert!(children.iter().any(|c| c.extension.as_deref() == Some("txt")));
+}
+
 /// 실제 홈 디렉토리 스캔 시 최대 RSS 측정:
 /// `cargo test --release --lib scan_home_memory -- --ignored --nocapture`
 #[test]

@@ -8,21 +8,22 @@ const NO_EXT: &str = "(no ext)";
 
 impl ScanTree {
     pub fn dto(&self, id: NodeId, path: String) -> NodeDto {
-        let n = self.node(id);
+        let is_dir = self.is_dir(id);
+        let modified = self.modified(id);
         NodeDto {
             name: self.name(id).to_string(),
             path,
-            size: n.size,
-            is_dir: n.is_dir(),
-            file_count: n.file_count,
+            size: self.size(id),
+            is_dir,
+            file_count: self.file_count(id),
             extension: self.ext(id).map(str::to_string),
-            dir_count: n.dir_count as u64,
-            modified: if n.modified > 0 { Some(n.modified) } else { None },
-            is_symlink: n.has(FLAG_SYMLINK),
-            is_hidden: n.has(FLAG_HIDDEN),
-            is_readonly: n.has(FLAG_READONLY),
+            dir_count: if is_dir { self.dir(id).dir_count as u64 } else { 0 },
+            modified: if modified > 0 { Some(modified) } else { None },
+            is_symlink: self.has(id, FLAG_SYMLINK),
+            is_hidden: self.has(id, FLAG_HIDDEN),
+            is_readonly: self.has(id, FLAG_READONLY),
             cleanup_pattern_id: self.cleanup_id(id).map(str::to_string),
-            child_count: if n.is_dir() { self.child_count(id) } else { 0 },
+            child_count: if is_dir { self.child_count(id) } else { 0 },
         }
     }
 
@@ -53,13 +54,13 @@ impl ScanTree {
         }
 
         let root = self.resolve(path)?;
-        let root_size = self.node(root).size;
+        let root_size = self.size(root);
         let min_size = ((root_size as f64 * min_ratio) as u64).max(1);
 
         let mut out: Vec<Flat> = vec![Flat { node: self.treemap_leaf(root, self.path_of(root)), kids: Vec::new() }];
         // (size, out index, node id) — 가장 큰 디렉토리부터 확장
         let mut heap: BinaryHeap<(u64, usize, NodeId)> = BinaryHeap::new();
-        if self.node(root).is_dir() {
+        if self.is_dir(root) {
             heap.push((root_size, 0, root));
         }
 
@@ -67,28 +68,28 @@ impl ScanTree {
             if out.len() >= max_nodes {
                 break;
             }
-            let mut kept: Vec<NodeId> = self.children(id).filter(|&c| self.node(c).size >= min_size).collect();
+            let mut kept: Vec<NodeId> = self.children(id).filter(|&c| self.size(c) >= min_size).collect();
             if kept.is_empty() {
                 continue;
             }
-            kept.sort_unstable_by(|&a, &b| self.node(b).size.cmp(&self.node(a).size));
+            kept.sort_unstable_by(|&a, &b| self.size(b).cmp(&self.size(a)));
             let total_children = self.child_count(id) as usize;
             kept.truncate(max_children);
 
             let parent_path = out[oi].node.path.clone();
             let mut kept_size = 0u64;
             for &c in &kept {
-                let cn = self.node(c);
-                kept_size += cn.size;
+                let c_size = self.size(c);
+                kept_size += c_size;
                 let idx = out.len();
                 out.push(Flat { node: self.treemap_leaf(c, self.child_path(&parent_path, c)), kids: Vec::new() });
                 out[oi].kids.push(idx);
-                if cn.is_dir() && cn.size > 0 && (cn.dirs_len > 0 || cn.files_len > 0) {
-                    heap.push((cn.size, idx, c));
+                if self.is_dir(c) && c_size > 0 && self.has_any_child(c) {
+                    heap.push((c_size, idx, c));
                 }
             }
 
-            let rest = self.node(id).size.saturating_sub(kept_size);
+            let rest = self.size(id).saturating_sub(kept_size);
             if rest > 0 {
                 let mut others_path = parent_path;
                 push_segment(&mut others_path, OTHERS_SEGMENT);
@@ -129,16 +130,20 @@ impl ScanTree {
     }
 
     fn treemap_leaf(&self, id: NodeId, path: String) -> TreemapNode {
-        let n = self.node(id);
         TreemapNode {
             name: self.name(id).to_string(),
             path,
-            size: n.size,
-            is_dir: n.is_dir(),
+            size: self.size(id),
+            is_dir: self.is_dir(id),
             extension: self.ext(id).map(str::to_string),
             cleanup_pattern_id: self.cleanup_id(id).map(str::to_string),
             children: Vec::new(),
         }
+    }
+
+    fn has_any_child(&self, dir: NodeId) -> bool {
+        let d = self.dir(dir);
+        d.dirs_len > 0 || d.files_len > 0
     }
 
     /// path 하위 파일들의 확장자별 크기/개수 (bytes 내림차순)
@@ -148,13 +153,13 @@ impl ScanTree {
         let mut acc: Vec<(u64, u64)> = vec![(0, 0); self.exts.len() + 1];
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
-            let n = self.node(id);
-            if n.is_dir() {
+            if self.is_dir(id) {
                 stack.extend(self.children(id));
             } else {
-                let slot = if n.has(FLAG_OTHERS) { 0 } else { n.ext as usize };
-                acc[slot].0 += n.size;
-                acc[slot].1 += n.file_count;
+                let f = self.file(id);
+                let slot = if f.flags & FLAG_OTHERS != 0 { 0 } else { f.ext as usize };
+                acc[slot].0 += f.size;
+                acc[slot].1 += self.file_count(id);
             }
         }
         let mut stats: Vec<ExtensionStat> = acc
