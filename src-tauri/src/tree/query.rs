@@ -11,7 +11,7 @@ impl ScanTree {
         let is_dir = self.is_dir(id);
         let modified = self.modified(id);
         NodeDto {
-            name: self.name(id).to_string(),
+            name: self.name(id).into_owned(),
             path,
             size: self.size(id),
             is_dir,
@@ -28,8 +28,8 @@ impl ScanTree {
     }
 
     pub fn node_dto(&self, path: &str) -> Option<NodeDto> {
-        let id = self.resolve(path)?;
-        Some(self.dto(id, self.path_of(id)))
+        let (id, parent) = self.resolve_entry(path)?;
+        Some(self.dto(id, self.entry_path(id, parent)))
     }
 
     pub fn root_dto(&self) -> NodeDto {
@@ -38,6 +38,9 @@ impl ScanTree {
 
     pub fn children_dtos(&self, path: &str) -> Option<Vec<NodeDto>> {
         let id = self.resolve(path)?;
+        if !self.is_dir(id) {
+            return Some(Vec::new());
+        }
         let parent_path = self.path_of(id);
         Some(
             self.children(id)
@@ -53,11 +56,11 @@ impl ScanTree {
             kids: Vec<usize>,
         }
 
-        let root = self.resolve(path)?;
+        let (root, root_parent) = self.resolve_entry(path)?;
         let root_size = self.size(root);
         let min_size = ((root_size as f64 * min_ratio) as u64).max(1);
 
-        let mut out: Vec<Flat> = vec![Flat { node: self.treemap_leaf(root, self.path_of(root)), kids: Vec::new() }];
+        let mut out: Vec<Flat> = vec![Flat { node: self.treemap_leaf(root, self.entry_path(root, root_parent)), kids: Vec::new() }];
         // (size, out index, node id) — 가장 큰 디렉토리부터 확장
         let mut heap: BinaryHeap<(u64, usize, NodeId)> = BinaryHeap::new();
         if self.is_dir(root) {
@@ -131,7 +134,7 @@ impl ScanTree {
 
     fn treemap_leaf(&self, id: NodeId, path: String) -> TreemapNode {
         TreemapNode {
-            name: self.name(id).to_string(),
+            name: self.name(id).into_owned(),
             path,
             size: self.size(id),
             is_dir: self.is_dir(id),

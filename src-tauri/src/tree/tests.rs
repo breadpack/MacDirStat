@@ -91,8 +91,8 @@ fn resolves_paths_and_builds_child_paths() {
     let dir = fixture();
     let tree = scan(dir.path(), 200);
     let deep = format!("{}/a/deep/x.rs", tree.root_path());
-    let id = tree.resolve(&deep).unwrap();
-    assert_eq!(tree.path_of(id), deep);
+    assert_eq!(tree.node_dto(&deep).unwrap().path, deep);
+    assert_eq!(tree.node_dto(&deep).unwrap().name, "x.rs");
     assert!(tree.resolve(&format!("{}/missing", tree.root_path())).is_none());
     assert!(tree.resolve("/somewhere/else").is_none());
     assert_eq!(tree.resolve(&format!("{}/", tree.root_path())), Some(0));
@@ -106,7 +106,7 @@ fn remove_updates_ancestors_and_hides_node() {
     let a_path = format!("{}/a", tree.root_path());
     let a = tree.node_dto(&a_path).unwrap();
 
-    assert!(tree.remove(tree.resolve(&a_path).unwrap()));
+    assert!(tree.remove_path(&a_path));
     let after = tree.root_dto();
     assert_eq!(after.size, before.size - a.size);
     assert_eq!(after.file_count, before.file_count - a.file_count);
@@ -119,8 +119,7 @@ fn remove_updates_ancestors_and_hides_node() {
 fn compact_preserves_live_tree() {
     let dir = fixture();
     let mut tree = scan(dir.path(), 200);
-    let b = tree.resolve(&format!("{}/b", tree.root_path())).unwrap();
-    tree.remove(b);
+    tree.remove_path(&format!("{}/b", tree.root_path()));
     let before = tree.root_dto();
     let len_before = tree.len();
     tree.compact();
@@ -129,7 +128,7 @@ fn compact_preserves_live_tree() {
     assert_eq!(after.size, before.size);
     assert_eq!(after.child_count, before.child_count);
     let deep = format!("{}/a/deep/x.rs", tree.root_path());
-    assert_eq!(tree.path_of(tree.resolve(&deep).unwrap()), deep);
+    assert_eq!(tree.node_dto(&deep).unwrap().path, deep);
 }
 
 #[test]
@@ -192,7 +191,7 @@ fn extension_stats_cover_all_files() {
 
 #[test]
 fn node_layout_stays_compact() {
-    assert_eq!(std::mem::size_of::<super::arena::FileNode>(), 32);
+    assert_eq!(std::mem::size_of::<super::arena::FileNode>(), 24);
     assert_eq!(std::mem::size_of::<super::arena::DirNode>(), 64);
 }
 
@@ -204,10 +203,10 @@ fn remove_single_file_and_others_node() {
     let before = tree.node_dto(&a_path).unwrap();
 
     let big = tree.node_dto(&format!("{a_path}/big.bin")).unwrap();
-    assert!(tree.remove(tree.resolve(&big.path).unwrap()));
+    assert!(tree.remove_path(&big.path));
     let others_path = format!("{a_path}/__others__");
     let others = tree.node_dto(&others_path).unwrap();
-    assert!(tree.remove(tree.resolve(&others_path).unwrap()));
+    assert!(tree.remove_path(&others_path));
 
     let after = tree.node_dto(&a_path).unwrap();
     assert_eq!(after.size, before.size - big.size - others.size);
@@ -221,8 +220,44 @@ fn remove_single_file_and_others_node() {
     assert!(children.iter().any(|c| c.extension.as_deref() == Some("txt")));
 }
 
+#[test]
+fn names_round_trip_with_stripped_extensions() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path();
+    for name in ["photo.JPG", "archive.tar.gz", ".gitignore", "README", "a.b.json", "x.json.bak"] {
+        write(&r.join(name), 10);
+    }
+    let tree = scan(r, 200);
+    let mut names: Vec<String> = tree.children_dtos(tree.root_path()).unwrap().into_iter().map(|c| c.name).collect();
+    names.sort();
+    assert_eq!(names, [".gitignore", "README", "a.b.json", "archive.tar.gz", "photo.JPG", "x.json.bak"]);
+    for name in &names {
+        let path = format!("{}/{name}", tree.root_path());
+        let dto = tree.node_dto(&path).unwrap_or_else(|| panic!("resolve {name}"));
+        assert_eq!(&dto.path, &path);
+    }
+    // 확장자만 일치하고 stem이 다른 경로는 찾지 못해야 한다
+    assert!(tree.resolve(&format!("{}/a.json", tree.root_path())).is_none());
+    assert_eq!(tree.node_dto(&format!("{}/photo.JPG", tree.root_path())).unwrap().extension.as_deref(), Some("jpg"));
+}
+
 /// 실제 홈 디렉토리 스캔 시 최대 RSS 측정:
 /// `cargo test --release --lib scan_home_memory -- --ignored --nocapture`
+/// Activity Monitor의 "메모리"와 같은 지표 (압축/스왑된 메모리 포함): (현재, 최대) MB
+#[cfg(target_os = "macos")]
+fn phys_footprint_mb() -> (u64, u64) {
+    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    let ret = unsafe {
+        libc::proc_pid_rusage(
+            std::process::id() as libc::c_int,
+            libc::RUSAGE_INFO_V4,
+            &mut info as *mut _ as *mut libc::rusage_info_t,
+        )
+    };
+    assert_eq!(ret, 0);
+    (info.ri_phys_footprint >> 20, info.ri_lifetime_max_phys_footprint >> 20)
+}
+
 #[test]
 #[ignore]
 fn scan_home_memory() {
@@ -230,16 +265,24 @@ fn scan_home_memory() {
     let start = std::time::Instant::now();
     let tree = scan(Path::new(&home), 200);
     let root = tree.root_dto();
+    let (fp_now, fp_max) = phys_footprint_mb();
+    println!("footprint_now={fp_now} MB footprint_max={fp_max} MB");
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
     unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+    let rss_now = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().unwrap_or(0) / 1024)
+        .unwrap_or(0);
     // macOS: ru_maxrss는 bytes 단위
     println!(
-        "files={} dirs={} nodes={} size={} elapsed={:?} peak_rss={} MB",
+        "files={} dirs={} nodes={} elapsed={:?} peak_rss={} MB rss_after_scan={} MB",
         root.file_count,
         root.dir_count,
         tree.len(),
-        root.size,
         start.elapsed(),
-        usage.ru_maxrss / 1024 / 1024
+        usage.ru_maxrss / 1024 / 1024,
+        rss_now
     );
+    println!("{}", tree.memory_report());
 }

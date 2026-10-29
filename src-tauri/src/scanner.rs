@@ -11,7 +11,7 @@ use crate::models::ScanProgress;
 use crate::platform;
 use crate::scanner_files::scan_dir_files;
 use crate::skeleton;
-use crate::tree::{DirResult, ScanTree};
+use crate::tree::{DirResult, NamePool, ScanTree};
 
 pub const DEFAULT_SKIP_PATHS: &[&str] = &[
     "/dev", "/proc", "/sys", "/Volumes", "/.vol", "/net", "/home", "/Network",
@@ -79,7 +79,7 @@ struct DirIndex {
     parent: Vec<u32>,
     name_off: Vec<u32>,
     name_len: Vec<u16>,
-    names: Vec<u8>,
+    names: NamePool,
 }
 
 impl DirIndex {
@@ -92,7 +92,7 @@ impl DirIndex {
             name_len: Vec::with_capacity(n),
             names: tree.names.clone(),
         };
-        for node in &tree.dirs {
+        for node in tree.dirs.iter() {
             idx.parent.push(node.parent);
             idx.name_off.push(node.name_off);
             idx.name_len.push(node.name_len);
@@ -109,9 +109,8 @@ impl DirIndex {
         }
         let mut path = PathBuf::from(&self.root);
         for &c in chain.iter().rev() {
-            let off = self.name_off[c as usize] as usize;
-            let len = self.name_len[c as usize] as usize;
-            path.push(std::str::from_utf8(&self.names[off..off + len]).unwrap_or(""));
+            let bytes = self.names.get(self.name_off[c as usize], self.name_len[c as usize]);
+            path.push(std::str::from_utf8(bytes).unwrap_or(""));
         }
         path
     }

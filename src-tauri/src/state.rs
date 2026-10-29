@@ -22,9 +22,7 @@ impl ScanState {
     pub fn remove_path(&self, path: &str) {
         let mut guard = write_lock(&self.tree);
         if let Some(tree) = guard.as_mut() {
-            if let Some(id) = tree.resolve(path) {
-                tree.remove(id);
-            }
+            tree.remove_path(path);
         }
     }
 }

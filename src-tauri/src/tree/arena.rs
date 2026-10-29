@@ -1,4 +1,7 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
+
+use super::chunked::{ChunkedVec, NamePool};
 
 /// 노드 식별자. FILE_BIT가 켜져 있으면 하위 31비트가 files 인덱스, 아니면 dirs 인덱스.
 pub type NodeId = u32;
@@ -12,6 +15,8 @@ pub const FLAG_READONLY: u8 = 8;
 /// 디렉토리당 상한을 넘어 개별 노드로 저장하지 않은 파일들의 합산 노드
 pub const FLAG_OTHERS: u8 = 16;
 pub const FLAG_REMOVED: u8 = 32;
+/// 이름 풀에 확장자를 뗀 stem만 저장됨 (표시 이름 = stem + "." + ext)
+pub const FLAG_EXT_STRIPPED: u8 = 64;
 
 /// 경로 세그먼트로 사용되는 합산 노드의 가상 이름
 pub const OTHERS_SEGMENT: &str = "__others__";
@@ -40,11 +45,11 @@ pub struct DirNode {
     pub flags: u8,
 }
 
-/// 파일 노드 (32바이트). 노드 대부분이 파일이므로 디렉토리 전용 필드를 갖지 않는다.
+/// 파일 노드 (24바이트). 노드 대부분이 파일이므로 디렉토리 전용 필드와 parent를 갖지 않는다.
+/// 부모가 필요한 연산(경로 계산, 삭제)은 경로를 따라 내려오며 부모를 함께 얻는다.
 #[derive(Clone, Copy, Debug)]
 pub struct FileNode {
     pub size: u64,
-    pub parent: NodeId,
     pub name_off: u32,
     /// unix seconds, 0 = unknown
     pub modified: u32,
@@ -57,9 +62,9 @@ pub struct FileNode {
 
 /// 스캔 결과 전체를 담는 arena. dirs[0]이 루트.
 pub struct ScanTree {
-    pub(crate) dirs: Vec<DirNode>,
-    pub(crate) files: Vec<FileNode>,
-    pub(crate) names: Vec<u8>,
+    pub(crate) dirs: ChunkedVec<DirNode>,
+    pub(crate) files: ChunkedVec<FileNode>,
+    pub(crate) names: NamePool,
     pub(crate) exts: Vec<Box<str>>,
     ext_index: HashMap<Box<str>, u32>,
     pub(crate) cleanup_ids: Vec<&'static str>,
@@ -82,12 +87,17 @@ pub(crate) fn clamp_secs(secs: u64) -> u32 {
     secs.min(u32::MAX as u64) as u32
 }
 
+/// name이 ".{ext}"로 끝나면 stem을 반환 (대소문자까지 일치할 때만 — 복원 시 원래 이름과 같아야 하므로)
+pub(crate) fn strip_ext<'a>(name: &'a str, ext: &str) -> Option<&'a str> {
+    name.strip_suffix(ext)?.strip_suffix('.').filter(|stem| !stem.is_empty())
+}
+
 impl ScanTree {
     pub fn new(root_path: &str, root_name: &str, root_flags: u8, cleanup_ids: Vec<&'static str>) -> Self {
         let mut tree = Self {
-            dirs: Vec::new(),
-            files: Vec::new(),
-            names: Vec::new(),
+            dirs: ChunkedVec::new(),
+            files: ChunkedVec::new(),
+            names: NamePool::new(),
             exts: Vec::new(),
             ext_index: HashMap::new(),
             cleanup_ids,
@@ -153,11 +163,6 @@ impl ScanTree {
     }
 
     #[inline]
-    pub fn parent(&self, id: NodeId) -> NodeId {
-        if is_file_id(id) { self.file(id).parent } else { self.dir(id).parent }
-    }
-
-    #[inline]
     pub fn size(&self, id: NodeId) -> u64 {
         if is_file_id(id) { self.file(id).size } else { self.dir(id).size }
     }
@@ -195,21 +200,31 @@ impl ScanTree {
         id
     }
 
-    pub fn push_file(&mut self, name: &str, parent: NodeId, flags: u8) -> NodeId {
-        let (name_off, name_len) = self.push_name(name);
+    /// 파일 노드 추가. ext가 주어지고 이름이 ".{ext}"로 끝나면 stem만 이름 풀에 저장한다.
+    pub fn push_file(&mut self, name: &str, ext: Option<&str>, flags: u8) -> NodeId {
+        let mut flags = flags & !(FLAG_DIR | FLAG_EXT_STRIPPED);
+        let mut ext_id = 0;
+        let mut stored = name;
+        if let Some(e) = ext {
+            ext_id = self.intern_ext(e);
+            if let Some(stem) = strip_ext(name, e) {
+                stored = stem;
+                flags |= FLAG_EXT_STRIPPED;
+            }
+        }
+        let (name_off, name_len) = self.push_name(stored);
         let id = file_id(self.files.len() as u32);
-        self.files.push(FileNode { size: 0, parent, name_off, modified: 0, ext: 0, name_len, flags: flags & !FLAG_DIR });
+        self.files.push(FileNode { size: 0, name_off, modified: 0, ext: ext_id, name_len, flags });
         id
     }
 
     pub(crate) fn push_name(&mut self, name: &str) -> (u32, u16) {
         let bytes = truncate_utf8(name, u16::MAX as usize);
-        let off = self.names.len() as u32;
-        self.names.extend_from_slice(bytes.as_bytes());
-        (off, bytes.len() as u16)
+        (self.names.push(bytes.as_bytes()), bytes.len() as u16)
     }
 
-    pub fn name(&self, id: NodeId) -> &str {
+    /// 이름 풀에 저장된 그대로의 이름 (확장자가 떼어졌을 수 있음)
+    pub(crate) fn raw_name(&self, id: NodeId) -> &str {
         let (off, len) = if is_file_id(id) {
             let f = self.file(id);
             (f.name_off, f.name_len)
@@ -217,8 +232,35 @@ impl ScanTree {
             let d = self.dir(id);
             (d.name_off, d.name_len)
         };
-        let start = off as usize;
-        std::str::from_utf8(&self.names[start..start + len as usize]).unwrap_or("")
+        std::str::from_utf8(self.names.get(off, len)).unwrap_or("")
+    }
+
+    /// 표시용 전체 이름
+    pub fn name(&self, id: NodeId) -> Cow<'_, str> {
+        let raw = self.raw_name(id);
+        match self.stripped_ext(id) {
+            Some(ext) => Cow::Owned(format!("{raw}.{ext}")),
+            None => Cow::Borrowed(raw),
+        }
+    }
+
+    fn stripped_ext(&self, id: NodeId) -> Option<&str> {
+        if !is_file_id(id) || self.file(id).flags & FLAG_EXT_STRIPPED == 0 {
+            return None;
+        }
+        self.ext(id)
+    }
+
+    /// 경로 세그먼트가 이 노드를 가리키는지 (할당 없이 비교)
+    fn segment_matches(&self, id: NodeId, seg: &str) -> bool {
+        if self.has(id, FLAG_OTHERS) {
+            return seg == OTHERS_SEGMENT;
+        }
+        let raw = self.raw_name(id);
+        match self.stripped_ext(id) {
+            Some(ext) => strip_ext(seg, ext) == Some(raw),
+            None => raw == seg,
+        }
     }
 
     pub fn intern_ext(&mut self, ext: &str) -> u32 {
@@ -269,47 +311,58 @@ impl ScanTree {
         self.children(id).count() as u32
     }
 
-    fn segment(&self, id: NodeId) -> &str {
-        if self.has(id, FLAG_OTHERS) { OTHERS_SEGMENT } else { self.name(id) }
-    }
-
-    /// 루트부터 id까지의 절대 경로
-    pub fn path_of(&self, id: NodeId) -> String {
+    /// 루트부터 디렉토리 dir까지의 절대 경로
+    pub fn path_of(&self, dir: NodeId) -> String {
         let mut chain = Vec::new();
-        let mut cur = id;
+        let mut cur = dir;
         while cur != 0 && cur != NO_NODE {
             chain.push(cur);
-            cur = self.parent(cur);
+            cur = self.dir(cur).parent;
         }
         let mut path = self.root_path.clone();
         for &c in chain.iter().rev() {
-            push_segment(&mut path, self.segment(c));
+            push_segment(&mut path, self.raw_name(c));
         }
         path
     }
 
     pub fn child_path(&self, parent_path: &str, child: NodeId) -> String {
         let mut path = parent_path.to_string();
-        push_segment(&mut path, self.segment(child));
+        if self.has(child, FLAG_OTHERS) {
+            push_segment(&mut path, OTHERS_SEGMENT);
+        } else {
+            push_segment(&mut path, &self.name(child));
+        }
         path
     }
 
-    /// 절대 경로 → NodeId. 루트 밖이거나 존재하지 않으면 None.
-    pub fn resolve(&self, path: &str) -> Option<NodeId> {
+    /// (id, 부모 디렉토리)의 정규화된 절대 경로
+    pub fn entry_path(&self, id: NodeId, parent: NodeId) -> String {
+        if is_file_id(id) { self.child_path(&self.path_of(parent), id) } else { self.path_of(id) }
+    }
+
+    /// 절대 경로 → (NodeId, 부모 디렉토리 id). 루트의 부모는 NO_NODE.
+    pub fn resolve_entry(&self, path: &str) -> Option<(NodeId, NodeId)> {
         let root = self.root_path.trim_end_matches('/');
         let path_trimmed = path.trim_end_matches('/');
         if path_trimmed == root {
-            return Some(0);
+            return Some((0, NO_NODE));
         }
         let rest = path_trimmed.strip_prefix(root)?;
         if !rest.starts_with('/') {
             return None;
         }
-        let mut cur: NodeId = 0;
+        let (mut cur, mut parent) = (0, NO_NODE);
         for seg in rest.split('/').filter(|s| !s.is_empty()) {
-            cur = self.children(cur).find(|&c| self.segment(c) == seg)?;
+            let next = self.children(cur).find(|&c| self.segment_matches(c, seg))?;
+            parent = cur;
+            cur = next;
         }
-        Some(cur)
+        Some((cur, parent))
+    }
+
+    pub fn resolve(&self, path: &str) -> Option<NodeId> {
+        self.resolve_entry(path).map(|(id, _)| id)
     }
 
     /// 디렉토리 id 자신과 모든 조상에 크기/파일 수를 더한다.
@@ -374,4 +427,21 @@ fn truncate_utf8(s: &str, max: usize) -> &str {
         end -= 1;
     }
     &s[..end]
+}
+
+impl ScanTree {
+    /// 구성 요소별 메모리 사용량 (벤치마크/진단용)
+    pub fn memory_report(&self) -> String {
+        const MB: usize = 1024 * 1024;
+        let dirs = self.dirs.len() * std::mem::size_of::<DirNode>();
+        let files = self.files.len() * std::mem::size_of::<FileNode>();
+        let names = self.names.byte_len();
+        format!(
+            "arena: dirs={} MB files={} MB names={} MB total={} MB",
+            dirs / MB,
+            files / MB,
+            names / MB,
+            (dirs + files + names) / MB
+        )
+    }
 }

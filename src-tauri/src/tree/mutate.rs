@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::arena::{clamp_secs, file_id, is_file_id, DirNode, FileNode, NodeId, ScanTree, FLAG_OTHERS, FLAG_REMOVED, NO_NODE};
+use super::chunked::{ChunkedVec, NamePool};
 
 /// 개별 노드로 유지할 파일 하나
 pub struct FileEntry {
@@ -28,16 +29,14 @@ impl ScanTree {
     pub fn apply_dir_result(&mut self, r: DirResult) {
         let start = self.files.len() as u32;
         for f in &r.files {
-            let id = self.push_file(&f.name, r.dir, f.flags);
-            let ext = f.ext.as_deref().map(|e| self.intern_ext(e)).unwrap_or(0);
+            let id = self.push_file(&f.name, f.ext.as_deref(), f.flags);
             let n = self.file_mut(id);
             n.size = f.size;
             n.modified = clamp_secs(f.modified);
-            n.ext = ext;
         }
         if r.others_count > 0 {
             let name = format!("({} other files)", r.others_count);
-            let id = self.push_file(&name, r.dir, FLAG_OTHERS);
+            let id = self.push_file(&name, None, FLAG_OTHERS);
             let n = self.file_mut(id);
             n.size = r.others_bytes;
             n.modified = clamp_secs(r.others_modified);
@@ -50,9 +49,16 @@ impl ScanTree {
         self.add_to_ancestors(r.dir, r.bytes, r.count, r.modified);
     }
 
-    /// 노드를 트리에서 제거하고 조상들의 집계값을 차감한다.
-    pub fn remove(&mut self, id: NodeId) -> bool {
-        if id == 0 || id == NO_NODE || self.has(id, FLAG_REMOVED) {
+    /// 경로의 노드를 트리에서 제거하고 조상들의 집계값을 차감한다.
+    pub fn remove_path(&mut self, path: &str) -> bool {
+        match self.resolve_entry(path) {
+            Some((id, parent)) => self.remove_entry(id, parent),
+            None => false,
+        }
+    }
+
+    fn remove_entry(&mut self, id: NodeId, parent: NodeId) -> bool {
+        if id == 0 || parent == NO_NODE || self.has(id, FLAG_REMOVED) {
             return false;
         }
         let size = self.size(id);
@@ -61,7 +67,7 @@ impl ScanTree {
         self.garbage += self.subtree_len(id);
         self.set_flag(id, FLAG_REMOVED);
 
-        let mut cur = self.parent(id);
+        let mut cur = parent;
         while cur != NO_NODE {
             let n = self.dir_mut(cur);
             n.size = n.size.saturating_sub(size);
@@ -84,10 +90,9 @@ impl ScanTree {
         let map_dir = |i: u32| if i == 0 { target } else { dir_base + i - 1 };
         let ext_map: Vec<u32> = sub.exts.iter().map(|e| self.intern_ext(e)).collect();
 
-        self.dirs.reserve(sub.dirs.len().saturating_sub(1));
         for i in 1..sub.dirs.len() as u32 {
             let sd = *sub.dir(i);
-            let (name_off, name_len) = self.push_name(sub.name(i));
+            let (name_off, name_len) = self.push_name(sub.raw_name(i));
             self.dirs.push(DirNode {
                 parent: map_dir(sd.parent),
                 name_off,
@@ -97,12 +102,12 @@ impl ScanTree {
                 ..sd
             });
         }
-        self.files.reserve(sub.files.len());
         for j in 0..sub.files.len() as u32 {
             let sf = sub.files[j as usize];
-            let (name_off, name_len) = self.push_name(sub.name(file_id(j)));
+            // 확장자가 떼어진 stem 그대로 복사 (FLAG_EXT_STRIPPED 유지)
+            let (name_off, name_len) = self.push_name(sub.raw_name(file_id(j)));
             let ext = if sf.flags & FLAG_OTHERS == 0 && sf.ext > 0 { ext_map[sf.ext as usize - 1] } else { sf.ext };
-            self.files.push(FileNode { parent: map_dir(sf.parent), name_off, name_len, ext, ..sf });
+            self.files.push(FileNode { name_off, name_len, ext, ..sf });
         }
 
         let sr = *sub.dir(0);
@@ -136,14 +141,10 @@ impl ScanTree {
 
     /// 도달 가능한 노드만으로 arena를 재구성한다 (BFS, 자식 구간 연속성 유지).
     pub fn compact(&mut self) {
-        let mut dirs: Vec<DirNode> = Vec::with_capacity(self.dirs.len());
-        let mut files: Vec<FileNode> = Vec::with_capacity(self.files.len());
-        let mut names: Vec<u8> = Vec::with_capacity(self.names.len());
-        let copy_name = |names: &mut Vec<u8>, src: &ScanTree, id: NodeId| -> u32 {
-            let off = names.len() as u32;
-            names.extend_from_slice(src.name(id).as_bytes());
-            off
-        };
+        let mut dirs: ChunkedVec<DirNode> = ChunkedVec::new();
+        let mut files: ChunkedVec<FileNode> = ChunkedVec::new();
+        let mut names = NamePool::new();
+        let copy_name = |names: &mut NamePool, src: &ScanTree, id: NodeId| -> u32 { names.push(src.raw_name(id).as_bytes()) };
 
         let root = DirNode { name_off: copy_name(&mut names, self, 0), ..*self.dir(0) };
         dirs.push(root);
@@ -156,9 +157,8 @@ impl ScanTree {
                 if self.dirs[c as usize].flags & FLAG_REMOVED != 0 {
                     continue;
                 }
-                let id = dirs.len() as NodeId;
-                dirs.push(DirNode { parent: new, name_off: copy_name(&mut names, self, c), ..self.dirs[c as usize] });
-                queue.push_back((c, id));
+                let id = dirs.push(DirNode { parent: new, name_off: copy_name(&mut names, self, c), ..self.dirs[c as usize] });
+                queue.push_back((c, id as NodeId));
             }
             let dirs_len = dirs.len() as u32 - dirs_start;
 
@@ -167,7 +167,7 @@ impl ScanTree {
                 if self.files[c as usize].flags & FLAG_REMOVED != 0 {
                     continue;
                 }
-                files.push(FileNode { parent: new, name_off: copy_name(&mut names, self, file_id(c)), ..self.files[c as usize] });
+                files.push(FileNode { name_off: copy_name(&mut names, self, file_id(c)), ..self.files[c as usize] });
             }
             let files_len = files.len() as u32 - files_start;
 
