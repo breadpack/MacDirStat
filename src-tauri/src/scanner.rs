@@ -251,7 +251,13 @@ pub fn scan_into(
     send_log(
         reporter,
         "info",
-        &format!("Scan complete: {} files, {} bytes, {} nodes in memory", root_node.file_count, root_node.size, tree.len()),
+        &format!(
+            "Scan complete: {} files, {} bytes, {} nodes ({})",
+            root_node.file_count,
+            root_node.size,
+            tree.len(),
+            tree.memory_report()
+        ),
         root,
     );
     true

@@ -258,6 +258,52 @@ fn phys_footprint_mb() -> (u64, u64) {
     (info.ri_phys_footprint >> 20, info.ri_lifetime_max_phys_footprint >> 20)
 }
 
+/// 압축/페이지 상태와 무관한 실제 힙 요구량 측정용 할당자 (테스트 바이너리 전용)
+mod alloc_stats {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    pub static CURRENT: AtomicUsize = AtomicUsize::new(0);
+    pub static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+    struct Counting;
+
+    fn grow(n: usize) {
+        let now = CURRENT.fetch_add(n, Ordering::Relaxed) + n;
+        PEAK.fetch_max(now, Ordering::Relaxed);
+    }
+
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc(layout) };
+            if !p.is_null() {
+                grow(layout.size());
+            }
+            p
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) };
+            CURRENT.fetch_sub(layout.size(), Ordering::Relaxed);
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            let p = unsafe { System.realloc(ptr, layout, new_size) };
+            if !p.is_null() {
+                // 재할당은 순간적으로 이전+새 블록이 공존할 수 있으므로 새 크기를 먼저 더한 뒤 이전 크기를 뺀다
+                grow(new_size);
+                CURRENT.fetch_sub(layout.size(), Ordering::Relaxed);
+            }
+            p
+        }
+    }
+
+    #[global_allocator]
+    static ALLOC: Counting = Counting;
+
+    pub fn mb() -> (usize, usize) {
+        (CURRENT.load(Ordering::Relaxed) >> 20, PEAK.load(Ordering::Relaxed) >> 20)
+    }
+}
+
 #[test]
 #[ignore]
 fn scan_home_memory() {
@@ -266,23 +312,12 @@ fn scan_home_memory() {
     let tree = scan(Path::new(&home), 200);
     let root = tree.root_dto();
     let (fp_now, fp_max) = phys_footprint_mb();
-    println!("footprint_now={fp_now} MB footprint_max={fp_max} MB");
-    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
-    let rss_now = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().unwrap_or(0) / 1024)
-        .unwrap_or(0);
-    // macOS: ru_maxrss는 bytes 단위
+    let (heap_now, heap_max) = alloc_stats::mb();
     println!(
-        "files={} dirs={} nodes={} elapsed={:?} peak_rss={} MB rss_after_scan={} MB",
+        "BENCH files={} nodes={} heap_now={heap_now} heap_max={heap_max} footprint_now={fp_now} footprint_max={fp_max} elapsed_s={}",
         root.file_count,
-        root.dir_count,
         tree.len(),
-        start.elapsed(),
-        usage.ru_maxrss / 1024 / 1024,
-        rss_now
+        start.elapsed().as_secs()
     );
     println!("{}", tree.memory_report());
 }
