@@ -1,7 +1,7 @@
 use tauri::ipc::Channel;
 use tauri::State;
 
-use super::fs_ops::PROTECTED_ROOTS;
+use super::fs_ops::check_deletable;
 use crate::cleanup_patterns::{
     self, CleanupMethod, CleanupPatternInfo, CleanupRecommendation, CleanupResult,
     CleanupScanProgress, DetectionMethod,
@@ -269,15 +269,7 @@ pub async fn execute_cleanup_recommendation(
                 let canonical = p.canonicalize().map_err(|e| {
                     format!("Cannot resolve path {}: {}", path_str, e)
                 })?;
-                let canonical_str = canonical.to_string_lossy();
-                for root in PROTECTED_ROOTS {
-                    if canonical_str.as_ref() == *root || canonical_str.starts_with(&format!("{}/", root)) {
-                        return Err(format!(
-                            "Cannot delete protected system path: {}",
-                            root
-                        ));
-                    }
-                }
+                check_deletable(&canonical)?;
 
                 let size = cleanup_patterns::dir_size(&canonical);
 
